@@ -274,6 +274,7 @@ agora respond {forum-id} --round 2 --participant human --file response.md
 - [ ] Configurable timing: timeouts, quorum, late policy
 
 ### Out of Scope (v0.2+)
+- **Divergence protocol** — "creativity mode" where the goal is breadth, not consensus. Inspired by De Bono's Six Thinking Hats. Fire keeper assigns lenses (risk, optimism, wild ideas, facts, etc.) to participants. No convergence check — output is the spread of perspectives, not agreement. Useful for brainstorming, creative work, retrospectives.
 - SQLite control plane / event log
 - Deterministic replay
 - Security hardening (signed outputs, path sanitization, trust boundaries)

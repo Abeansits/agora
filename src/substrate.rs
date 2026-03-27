@@ -212,57 +212,126 @@ pub fn is_completed(forum: &Path) -> bool {
 }
 
 /// Invoke a participant command with timeout.
-/// Replaces {prompt_file} with a temp file path. Sets AGORA_PROMPT and AGORA_PROMPT_FILE
-/// as environment variables. Does NOT do `{prompt}` text substitution to prevent shell injection.
+///
+/// The prompt is delivered to the command via three mechanisms (use whichever fits your CLI):
+///   1. **stdin** — prompt is piped to the command's stdin (safest, no shell interpretation)
+///   2. **{prompt_file}** — replaced with a temp file path in the command template
+///   3. **$AGORA_PROMPT_FILE** — env var pointing to the same temp file
+///
+/// Recommended command patterns:
+///   - Codex:    `codex exec --full-auto -`         (reads stdin)
+///   - Gemini:   `gemini -p " "`                    (reads stdin, -p triggers headless mode)
+///   - Claude:   `claude -p "$(cat {prompt_file})"`  (file path substitution)
+///   - OpenCode: `opencode run < {prompt_file}`      (shell redirect from file)
+///   - Any CLI:  `cat {prompt_file} | some-cli`      (pipe through cat, avoids shell expansion)
 pub fn invoke_command(
     command_template: &str,
     prompt: &str,
     timeout: Duration,
 ) -> Result<String> {
+    use std::io::{self, Write};
+    use std::process::Stdio;
+    use std::sync::{Arc, Mutex};
+
     let tmp_file = std::env::temp_dir().join(format!("agora-{}.md", uuid::Uuid::new_v4()));
     fs::write(&tmp_file, prompt)
         .with_context(|| "Failed to write prompt temp file")?;
 
+    // Guard: clean up temp file on all exit paths
+    let tmp_file_cleanup = tmp_file.clone();
+    let _cleanup = CleanupGuard(Some(tmp_file_cleanup));
+
     let command = command_template
         .replace("{prompt_file}", &tmp_file.display().to_string());
 
-    let prompt_owned = prompt.to_string();
+    let prompt_for_stdin = prompt.to_string();
     let tmp_display = tmp_file.display().to_string();
     let cmd_for_thread = command.clone();
+
+    // Share the child PID so we can kill it on timeout
+    let child_pid: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+    let child_pid_for_thread = child_pid.clone();
 
     // Run in a thread so we can enforce a timeout
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let result = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(&cmd_for_thread)
-            .env("AGORA_PROMPT", &prompt_owned)
-            .env("AGORA_PROMPT_FILE", &tmp_display)
-            .output();
+        let result = (|| -> io::Result<std::process::Output> {
+            let mut child = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&cmd_for_thread)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .env("AGORA_PROMPT_FILE", &tmp_display)
+                .spawn()?;
+
+            // Store PID so the parent can kill on timeout
+            *child_pid_for_thread.lock().unwrap() = Some(child.id());
+
+            // Write stdin in a separate thread to avoid deadlock:
+            // if the child fills stdout/stderr before reading all stdin,
+            // write_all would block while wait_with_output isn't draining.
+            let stdin = child.stdin.take();
+            let stdin_thread = std::thread::spawn(move || {
+                if let Some(mut stdin) = stdin {
+                    match stdin.write_all(prompt_for_stdin.as_bytes()) {
+                        Ok(()) => {}
+                        Err(e) if e.kind() == io::ErrorKind::BrokenPipe => {
+                            // Child closed stdin early — not an error
+                        }
+                        Err(e) => {
+                            eprintln!("  Warning: stdin write error: {}", e);
+                        }
+                    }
+                }
+            });
+
+            let output = child.wait_with_output()?;
+            let _ = stdin_thread.join();
+            Ok(output)
+        })();
         tx.send(result).ok();
     });
 
-    let output = rx
-        .recv_timeout(timeout)
-        .map_err(|_| {
-            anyhow::anyhow!(
+    let output = match rx.recv_timeout(timeout) {
+        Ok(result) => result.with_context(|| format!("Failed to execute: {}", command_template))?,
+        Err(_) => {
+            // Timeout: kill the child process
+            if let Some(pid) = *child_pid.lock().unwrap() {
+                // Kill the process group to also reap children of sh -c
+                #[cfg(unix)]
+                unsafe {
+                    libc::kill(-(pid as i32), libc::SIGKILL);
+                }
+            }
+            anyhow::bail!(
                 "Command timed out after {:?}: {}",
                 timeout,
                 command_template
-            )
-        })?
-        .with_context(|| format!("Failed to execute: {}", command_template))?;
-
-    fs::remove_file(&tmp_file).ok();
+            );
+        }
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Command failed ({}): {}", command_template, stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let detail = if stderr.is_empty() { &stdout } else { &stderr };
+        anyhow::bail!("Command failed ({}): {}", command_template, detail);
     }
 
     String::from_utf8(output.stdout)
         .with_context(|| "Invalid UTF-8 in command output")
         .map(|s| s.trim().to_string())
+}
+
+/// RAII guard that deletes a temp file when dropped (any exit path)
+struct CleanupGuard(Option<std::path::PathBuf>);
+impl Drop for CleanupGuard {
+    fn drop(&mut self) {
+        if let Some(ref path) = self.0 {
+            fs::remove_file(path).ok();
+        }
+    }
 }
 
 /// Invoke the claude CLI with a prompt and return the response
@@ -380,5 +449,55 @@ mod tests {
         assert!(!responses.contains_key("charlie"));
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_invoke_command_stdin_piping() {
+        // Command reads from stdin — should get the prompt
+        let result = invoke_command("cat", "hello from stdin", Duration::from_secs(5));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "hello from stdin");
+    }
+
+    #[test]
+    fn test_invoke_command_stdin_with_metacharacters() {
+        // Prompt with shell metacharacters must pass through safely via stdin
+        let prompt = "Use `backticks` and $HOME and \"quotes\" and $(echo danger)";
+        let result = invoke_command("cat", prompt, Duration::from_secs(5));
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), prompt);
+    }
+
+    #[test]
+    fn test_invoke_command_prompt_file() {
+        // Command reads from {prompt_file} — file should exist and contain the prompt
+        let result = invoke_command(
+            "cat {prompt_file}",
+            "hello from file",
+            Duration::from_secs(5),
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "hello from file");
+    }
+
+    #[test]
+    fn test_invoke_command_env_var() {
+        // Command reads AGORA_PROMPT_FILE env var
+        let result = invoke_command(
+            "cat $AGORA_PROMPT_FILE",
+            "hello from env",
+            Duration::from_secs(5),
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "hello from env");
+    }
+
+    #[test]
+    fn test_invoke_command_timeout() {
+        // Command that exceeds timeout should fail
+        let result = invoke_command("sleep 30", "ignored", Duration::from_secs(1));
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("timed out"), "Expected timeout error, got: {}", err);
     }
 }
