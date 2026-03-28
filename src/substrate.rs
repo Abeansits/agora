@@ -213,17 +213,19 @@ pub fn is_completed(forum: &Path) -> bool {
 
 /// Invoke a participant command with timeout.
 ///
-/// The prompt is delivered to the command via three mechanisms (use whichever fits your CLI):
-///   1. **stdin** — prompt is piped to the command's stdin (safest, no shell interpretation)
+/// The prompt is delivered via:
+///   1. **stdin** — piped to the child (only if command does NOT contain `{prompt_file}`)
 ///   2. **{prompt_file}** — replaced with a temp file path in the command template
 ///   3. **$AGORA_PROMPT_FILE** — env var pointing to the same temp file
 ///
+/// Stdin and {prompt_file} are mutually exclusive to avoid double delivery.
+///
 /// Recommended command patterns:
-///   - Codex:    `codex exec --full-auto -`         (reads stdin)
-///   - Gemini:   `gemini -p " "`                    (reads stdin, -p triggers headless mode)
-///   - Claude:   `claude -p "$(cat {prompt_file})"`  (file path substitution)
-///   - OpenCode: `opencode run < {prompt_file}`      (shell redirect from file)
-///   - Any CLI:  `cat {prompt_file} | some-cli`      (pipe through cat, avoids shell expansion)
+///   - Codex:    `codex exec --full-auto -`           (reads stdin)
+///   - Gemini:   `gemini --prompt`                    (reads stdin)
+///   - Claude:   `cat {prompt_file} | claude -p -`    (pipe from file, no shell expansion)
+///   - OpenCode: `opencode run`                       (reads stdin)
+///   - Any CLI:  `cat {prompt_file} | some-cli`       (pipe through cat)
 pub fn invoke_command(
     command_template: &str,
     prompt: &str,
@@ -241,53 +243,78 @@ pub fn invoke_command(
     let tmp_file_cleanup = tmp_file.clone();
     let _cleanup = CleanupGuard(Some(tmp_file_cleanup));
 
+    // If command uses {prompt_file}, substitute it and DON'T pipe stdin (avoid double delivery)
+    let uses_prompt_file = command_template.contains("{prompt_file}");
     let command = command_template
         .replace("{prompt_file}", &tmp_file.display().to_string());
 
-    let prompt_for_stdin = prompt.to_string();
+    let prompt_for_stdin = if uses_prompt_file {
+        None
+    } else {
+        Some(prompt.to_string())
+    };
     let tmp_display = tmp_file.display().to_string();
     let cmd_for_thread = command.clone();
 
-    // Share the child PID so we can kill it on timeout
+    // Share the child PID so we can kill the process group on timeout
     let child_pid: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
     let child_pid_for_thread = child_pid.clone();
 
     // Run in a thread so we can enforce a timeout
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
+    let worker = std::thread::spawn(move || {
         let result = (|| -> io::Result<std::process::Output> {
-            let mut child = std::process::Command::new("sh")
-                .arg("-c")
+            let mut cmd = std::process::Command::new("sh");
+            cmd.arg("-c")
                 .arg(&cmd_for_thread)
-                .stdin(Stdio::piped())
+                .stdin(if prompt_for_stdin.is_some() {
+                    Stdio::piped()
+                } else {
+                    Stdio::null()
+                })
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .env("AGORA_PROMPT_FILE", &tmp_display)
-                .spawn()?;
+                .env("AGORA_PROMPT_FILE", &tmp_display);
 
-            // Store PID so the parent can kill on timeout
+            // Make child a process group leader so kill(-pgid) reaps all descendants
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                unsafe {
+                    cmd.pre_exec(|| {
+                        libc::setpgid(0, 0);
+                        Ok(())
+                    });
+                }
+            }
+
+            let mut child = cmd.spawn()?;
+
+            // Store PID (= PGID since we called setpgid) for timeout kill
             *child_pid_for_thread.lock().unwrap() = Some(child.id());
 
             // Write stdin in a separate thread to avoid deadlock:
             // if the child fills stdout/stderr before reading all stdin,
-            // write_all would block while wait_with_output isn't draining.
-            let stdin = child.stdin.take();
-            let stdin_thread = std::thread::spawn(move || {
-                if let Some(mut stdin) = stdin {
-                    match stdin.write_all(prompt_for_stdin.as_bytes()) {
-                        Ok(()) => {}
-                        Err(e) if e.kind() == io::ErrorKind::BrokenPipe => {
-                            // Child closed stdin early — not an error
-                        }
-                        Err(e) => {
-                            eprintln!("  Warning: stdin write error: {}", e);
+            // write_all blocks while wait_with_output isn't draining yet.
+            let stdin_handle = if let Some(prompt_data) = prompt_for_stdin {
+                let stdin = child.stdin.take();
+                Some(std::thread::spawn(move || {
+                    if let Some(mut stdin) = stdin {
+                        match stdin.write_all(prompt_data.as_bytes()) {
+                            Ok(()) => {}
+                            Err(e) if e.kind() == io::ErrorKind::BrokenPipe => {}
+                            Err(e) => eprintln!("  Warning: stdin write error: {}", e),
                         }
                     }
-                }
-            });
+                }))
+            } else {
+                None
+            };
 
             let output = child.wait_with_output()?;
-            let _ = stdin_thread.join();
+            if let Some(h) = stdin_handle {
+                let _ = h.join();
+            }
             Ok(output)
         })();
         tx.send(result).ok();
@@ -296,14 +323,22 @@ pub fn invoke_command(
     let output = match rx.recv_timeout(timeout) {
         Ok(result) => result.with_context(|| format!("Failed to execute: {}", command_template))?,
         Err(_) => {
-            // Timeout: kill the child process
+            // Timeout: kill the process group
             if let Some(pid) = *child_pid.lock().unwrap() {
-                // Kill the process group to also reap children of sh -c
                 #[cfg(unix)]
                 unsafe {
                     libc::kill(-(pid as i32), libc::SIGKILL);
                 }
+                #[cfg(windows)]
+                {
+                    // Best-effort kill on Windows
+                    let _ = std::process::Command::new("taskkill")
+                        .args(&["/F", "/T", "/PID", &pid.to_string()])
+                        .output();
+                }
             }
+            // Join the worker thread to prevent leak
+            let _ = worker.join();
             anyhow::bail!(
                 "Command timed out after {:?}: {}",
                 timeout,
@@ -329,7 +364,9 @@ struct CleanupGuard(Option<std::path::PathBuf>);
 impl Drop for CleanupGuard {
     fn drop(&mut self) {
         if let Some(ref path) = self.0 {
-            fs::remove_file(path).ok();
+            if let Err(e) = fs::remove_file(path) {
+                eprintln!("  Warning: failed to clean up temp file {}: {}", path.display(), e);
+            }
         }
     }
 }

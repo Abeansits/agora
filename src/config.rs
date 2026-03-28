@@ -118,8 +118,8 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
 pub fn preset_command(name: &str) -> Option<(&'static str, &'static str)> {
     match name {
         "codex" => Some(("command", "codex exec --full-auto -")),
-        "gemini" => Some(("command", "gemini -p \" \"")),
-        "claude" => Some(("command", "claude -p \"$(cat {prompt_file})\"")),
+        "gemini" => Some(("command", "cat {prompt_file} | gemini -p ' '")),
+        "claude" => Some(("command", "cat {prompt_file} | claude -p -")),
         "opencode" => Some(("command", "opencode run")),
         _ => None,
     }

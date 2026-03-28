@@ -201,11 +201,12 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
 
 </div>
 <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <script>
 document.querySelectorAll('.md-render').forEach(el => {{
   const src = el.querySelector('.md-src');
   if (src) {{
-    el.innerHTML = marked.parse(src.value);
+    el.innerHTML = DOMPurify.sanitize(marked.parse(src.value));
   }}
 }});
 </script>

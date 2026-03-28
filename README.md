@@ -101,8 +101,8 @@ agora respond <forum-id> -r 1 -n human -f my-response.md
 | Preset     | Command                                  | Input Method |
 |------------|------------------------------------------|--------------|
 | `codex`    | `codex exec --full-auto -`               | stdin        |
-| `gemini`   | `gemini -p " "`                          | stdin        |
-| `claude`   | `claude -p "$(cat {prompt_file})"`       | file path    |
+| `gemini`   | `cat {prompt_file} \| gemini -p ' '`     | file pipe    |
+| `claude`   | `cat {prompt_file} \| claude -p -`       | file pipe    |
 | `opencode` | `opencode run`                           | stdin        |
 | `human`    | (manual — writes files directly)         | filesystem   |
 

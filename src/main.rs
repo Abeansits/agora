@@ -148,11 +148,11 @@ fn cmd_new(
         None => None,
     };
 
-    // Generate forum ID: agora-YYYY-MM-DD-NNN
+    // Generate forum ID: agora-YYYY-MM-DD-UUID8 (collision-safe)
     let id = format!(
-        "agora-{}-{:03}",
+        "agora-{}-{}",
         chrono::Utc::now().format("%Y-%m-%d"),
-        rand::random::<u16>() % 1000
+        &uuid::Uuid::new_v4().to_string()[..8],
     );
 
     let forum_config = ForumConfig {
