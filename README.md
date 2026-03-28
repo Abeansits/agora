@@ -2,6 +2,20 @@
 
 A multi-agent deliberation tool where any LLM, CLI tool, or human can participate in structured, multi-turn discussions using the filesystem as a shared medium. Agora orchestrates a modified Delphi protocol — independent proposals, adversarial cross-examination, informed revision — then synthesizes agreement and preserves dissent as a first-class output.
 
+## Who This Is For
+
+**Agora is for you if:**
+- You use multiple AI models and want better decisions than any single model gives
+- You want structured disagreement, not just "ask Claude" — cross-examination surfaces blind spots
+- You make architecture, planning, or strategy decisions regularly and want to stress-test your thinking
+- You want a record of *why* a decision was made, including the dissenting views
+
+**Agora is NOT for:**
+- Simple Q&A where one model is enough — Agora is overkill for "fix this bug"
+- Real-time chat — deliberation takes minutes, not seconds
+- People who want a framework or SDK — this is a standalone CLI tool
+- Consensus-seeking — Agora preserves dissent as a first-class output, not a failure mode
+
 ## Prerequisites
 
 - **Rust** (1.85+, edition 2024)
@@ -32,6 +46,45 @@ agora result --html <forum-id>
 
 # Publish report to the web
 agora result --html --publish <forum-id>
+```
+
+### What You'll See
+
+```
+   █████╗  ██████╗  ██████╗ ██████╗  █████╗
+  ██╔══██╗██╔════╝ ██╔═══██╗██╔══██╗██╔══██╗
+  ███████║██║  ███╗██║   ██║██████╔╝███████║
+  ██╔══██║██║   ██║██║   ██║██╔══██╗██╔══██║
+  ██║  ██║╚██████╔╝╚██████╔╝██║  ██║██║  ██║
+  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+  v0.1.1  Structured deliberation between AI models
+
+  Forum  agora-2026-03-27-a1b2c3d4
+  Topic  Should we use Pipecat or Vapi for voice?
+  With   codex, gemini, claude
+  Rules  5 rounds, 5m timeout
+
+=== Round 1 (proposal) ===
+  Wrote round-1/prompt.md
+  Invoking participant: codex
+  Invoking participant: gemini
+  Invoking participant: claude
+  Collected 3/3 responses
+  Generating synthesis...
+  Generating claims...
+
+=== Round 2 (cross-examination) ===
+  Wrote round-2/prompt.md
+  Invoking participant: codex
+  Invoking participant: gemini
+  Invoking participant: claude
+  Collected 3/3 responses
+  Generating synthesis...
+  Generating claims...
+  Evaluating convergence...
+  CONVERGED (score: 8.0): Strong agreement on core architecture...
+
+=== Final output written to ~/.agora/sessions/agora-2026-03-27-a1b2c3d4/final/ ===
 ```
 
 ## Protocol
