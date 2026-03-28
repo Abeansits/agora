@@ -114,15 +114,119 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
 }
 
 /// Built-in presets for common model CLIs.
-/// Returns Some((participant_type, command)) if the name matches a preset.
-pub fn preset_command(name: &str) -> Option<(&'static str, &'static str)> {
+fn builtin_preset(name: &str) -> Option<(&'static str, &'static str)> {
     match name {
         "codex" => Some(("command", "codex exec --full-auto -")),
         "gemini" => Some(("command", "cat {prompt_file} | gemini -p ' '")),
         "claude" => Some(("command", "cat {prompt_file} | claude -p -")),
         "opencode" => Some(("command", "opencode run")),
+        "ollama" => Some(("command", "cat {prompt_file} | ollama run llama3")),
         _ => None,
     }
+}
+
+/// Resolve a preset by name: user presets (from ~/.agora/config.toml) override built-ins.
+pub fn preset_command(name: &str) -> Option<(String, String)> {
+    // Check user presets first
+    if let Some(cmd) = load_user_preset(name) {
+        return Some(("command".to_string(), cmd));
+    }
+    // Fall back to built-in
+    builtin_preset(name).map(|(t, c)| (t.to_string(), c.to_string()))
+}
+
+/// List all presets: built-in + user (user overrides shown with [custom] tag)
+pub fn list_all_presets() -> Vec<(String, String, bool)> {
+    let builtins = ["codex", "gemini", "claude", "opencode", "ollama"];
+    let user_presets = load_user_presets();
+
+    let mut result: Vec<(String, String, bool)> = Vec::new();
+
+    // Built-ins (mark overridden ones)
+    for name in &builtins {
+        if let Some(cmd) = user_presets.get(*name) {
+            result.push((name.to_string(), cmd.clone(), true));
+        } else if let Some((_, cmd)) = builtin_preset(name) {
+            result.push((name.to_string(), cmd.to_string(), false));
+        }
+    }
+
+    // User-only presets (not overriding a built-in)
+    for (name, cmd) in &user_presets {
+        if !builtins.contains(&name.as_str()) {
+            result.push((name.clone(), cmd.clone(), true));
+        }
+    }
+
+    result
+}
+
+fn agora_config_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home).join(".agora").join("config.toml")
+}
+
+fn load_user_presets() -> std::collections::HashMap<String, String> {
+    let path = agora_config_path();
+    if !path.exists() {
+        return std::collections::HashMap::new();
+    }
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return std::collections::HashMap::new(),
+    };
+    let table: toml::Table = match content.parse() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Warning: failed to parse {}: {}", path.display(), e);
+            return std::collections::HashMap::new();
+        }
+    };
+    let mut presets = std::collections::HashMap::new();
+    if let Some(toml::Value::Table(p)) = table.get("presets") {
+        for (name, val) in p {
+            if let toml::Value::String(cmd) = val {
+                presets.insert(name.clone(), cmd.clone());
+            }
+        }
+    }
+    presets
+}
+
+fn load_user_preset(name: &str) -> Option<String> {
+    load_user_presets().get(name).cloned()
+}
+
+/// Save a user preset to ~/.agora/config.toml
+pub fn save_user_preset(name: &str, command: &str) -> Result<()> {
+    let path = agora_config_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let content = if path.exists() {
+        std::fs::read_to_string(&path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let mut table: toml::Table = content.parse().unwrap_or_default();
+    let presets = table
+        .entry("presets")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    if let toml::Value::Table(p) = presets {
+        p.insert(name.to_string(), toml::Value::String(command.to_string()));
+    }
+
+    let output = toml::to_string_pretty(&table)
+        .with_context(|| "Failed to serialize config")?;
+    // Atomic write: write to tmp then rename
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, &output)
+        .with_context(|| format!("Failed to write {}", tmp.display()))?;
+    std::fs::rename(&tmp, &path)
+        .with_context(|| format!("Failed to rename {} -> {}", tmp.display(), path.display()))?;
+    Ok(())
 }
 
 /// Parse a CLI participant spec. Supports three formats:
@@ -133,14 +237,14 @@ pub fn parse_participant_spec(spec: &str) -> Result<(String, ParticipantConfig)>
     let parts: Vec<&str> = spec.splitn(3, ':').collect();
     match parts.len() {
         1 => {
-            // Bare name — check for preset
+            // Bare name — check for preset (user presets override built-in)
             let name = parts[0].to_string();
             if let Some((ptype, cmd)) = preset_command(&name) {
                 Ok((
                     name,
                     ParticipantConfig {
-                        participant_type: ptype.to_string(),
-                        command: Some(cmd.to_string()),
+                        participant_type: ptype,
+                        command: Some(cmd),
                     },
                 ))
             } else if name == "human" {
@@ -152,11 +256,14 @@ pub fn parse_participant_spec(spec: &str) -> Result<(String, ParticipantConfig)>
                     },
                 ))
             } else {
-                let presets: Vec<&str> = ["codex", "gemini", "claude", "opencode", "human"].into();
+                let all = list_all_presets();
+                let names: Vec<String> = all.iter().map(|(n, _, _)| n.clone()).collect();
+                let mut available = names.join(", ");
+                available.push_str(", human");
                 anyhow::bail!(
-                    "Unknown preset '{}'. Available presets: {}. Or use name:command:\"cmd\"",
+                    "Unknown preset '{}'. Available: {}. Or use name:command:\"cmd\"",
                     name,
-                    presets.join(", ")
+                    available,
                 )
             }
         }

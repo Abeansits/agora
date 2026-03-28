@@ -104,17 +104,38 @@ agora respond <forum-id> -r 1 -n human -f my-response.md
 | `gemini`   | `cat {prompt_file} \| gemini -p ' '`     | file pipe    |
 | `claude`   | `cat {prompt_file} \| claude -p -`       | file pipe    |
 | `opencode` | `opencode run`                           | stdin        |
+| `ollama`   | `cat {prompt_file} \| ollama run llama3` | file pipe    |
 | `human`    | (manual — writes files directly)         | filesystem   |
 
 ```bash
 agora new "topic" --participant codex --participant gemini
 ```
 
-### Custom Commands
+### Custom Presets
+
+Save reusable presets with `agora preset`:
+
+```bash
+# Add a custom preset
+agora preset add mistral "cat {prompt_file} | ollama run mistral"
+
+# List all presets (built-in + custom)
+agora preset list
+
+# Use it
+agora new "topic" --participant mistral --participant codex
+
+# Remove it
+agora preset remove mistral
+```
+
+Custom presets are stored in `~/.agora/config.toml` and override built-ins of the same name.
+
+### Custom Commands (inline)
 
 ```bash
 agora new "topic" \
-  --participant "llama:command:ollama run llama3 < {prompt_file}" \
+  --participant "llama:command:cat {prompt_file} | ollama run llama3" \
   --participant "gpt:command:cat {prompt_file} | openai-cli chat"
 ```
 
@@ -134,6 +155,18 @@ When the fire keeper needs a human response, it prints instructions:
 Waiting for human. Submit your response:
   Option A: Write to ~/.agora/sessions/<id>/round-1/human.md
   Option B: agora respond <id> -r 1 -n human -f response.md
+```
+
+### Other Models
+
+Any CLI that reads from stdin or a file can participate. Examples:
+
+```bash
+# Cursor (editor, no CLI agent mode — use via custom command if they add one)
+# Pi (no public CLI — use via API wrapper)
+
+# Any ollama model
+agora preset add deepseek "cat {prompt_file} | ollama run deepseek-r1"
 ```
 
 ## Configuration

@@ -83,6 +83,30 @@ enum Commands {
         #[arg(short, long)]
         file: PathBuf,
     },
+
+    /// Manage participant presets
+    Preset {
+        #[command(subcommand)]
+        action: PresetAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum PresetAction {
+    /// Add or update a custom preset
+    Add {
+        /// Preset name (e.g. "llama", "mistral")
+        name: String,
+        /// Command template (use {prompt_file} or stdin)
+        command: String,
+    },
+    /// List all available presets (built-in + custom)
+    List,
+    /// Remove a custom preset
+    Remove {
+        /// Preset name to remove
+        name: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -109,6 +133,11 @@ fn main() -> Result<()> {
             participant,
             file,
         } => cmd_respond(&forum_id, round, &participant, &file),
+        Commands::Preset { action } => match action {
+            PresetAction::Add { name, command } => cmd_preset_add(&name, &command),
+            PresetAction::List => cmd_preset_list(),
+            PresetAction::Remove { name } => cmd_preset_remove(&name),
+        },
     }
 }
 
@@ -362,5 +391,50 @@ fn cmd_respond(forum_id: &str, round: u32, participant: &str, file: &PathBuf) ->
         participant, round, participant
     );
 
+    Ok(())
+}
+
+fn cmd_preset_add(name: &str, command: &str) -> Result<()> {
+    config::save_user_preset(name, command)?;
+    eprintln!("Preset '{}' saved: {}", name, command);
+    Ok(())
+}
+
+fn cmd_preset_list() -> Result<()> {
+    let presets = config::list_all_presets();
+    println!("{:<14} {:<6} {}", "Name", "Type", "Command");
+    println!("{}", "-".repeat(70));
+    for (name, cmd, is_custom) in &presets {
+        let tag = if *is_custom { "custom" } else { "built-in" };
+        let cmd_display = if cmd.len() > 45 {
+            format!("{}...", &cmd[..42])
+        } else {
+            cmd.clone()
+        };
+        println!("{:<14} {:<9} {}", name, tag, cmd_display);
+    }
+    println!("{:<14} {:<9} {}", "human", "built-in", "(manual — writes files directly)");
+    Ok(())
+}
+
+fn cmd_preset_remove(name: &str) -> Result<()> {
+    let path = std::path::Path::new(&std::env::var("HOME").unwrap_or_default())
+        .join(".agora")
+        .join("config.toml");
+    if !path.exists() {
+        anyhow::bail!("No custom presets configured");
+    }
+    let content = std::fs::read_to_string(&path)?;
+    let mut table: toml::Table = content.parse().unwrap_or_default();
+    if let Some(toml::Value::Table(p)) = table.get_mut("presets") {
+        if p.remove(name).is_none() {
+            anyhow::bail!("Preset '{}' not found in custom presets", name);
+        }
+    } else {
+        anyhow::bail!("No custom presets configured");
+    }
+    let output = toml::to_string_pretty(&table)?;
+    std::fs::write(&path, output)?;
+    eprintln!("Preset '{}' removed", name);
     Ok(())
 }
