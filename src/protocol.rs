@@ -203,11 +203,16 @@ fn invoke_participants(
 
     // Wait for manual participants via filesystem watching
     if !manual_participants.is_empty() {
-        eprintln!(
-            "  Waiting for manual participants: {:?}",
-            manual_participants
-        );
+        let forum_id = &config.forum.id;
+        eprintln!();
+        for name in &manual_participants {
+            eprintln!("  Waiting for {name}. Submit your response:");
+            eprintln!("    Option A: Write to {}/round-{}/{name}.md", forum_path.display(), round);
+            eprintln!("    Option B: agora respond {forum_id} -r {round} -n {name} -f response.md");
+        }
+        eprintln!();
         let timeout = config::parse_duration(&config.timing.round_timeout)?;
+        eprintln!("  Timeout: {:?}", timeout);
         let manual_responses =
             substrate::watch_for_responses(&round_dir, &manual_participants, timeout)?;
 
@@ -243,10 +248,17 @@ fn generate_prompt(
     }
 }
 
+fn context_section(config: &ForumConfig) -> String {
+    match &config.forum.context {
+        Some(ctx) if !ctx.is_empty() => format!("\n## Context\n\n{}\n", ctx),
+        _ => String::new(),
+    }
+}
+
 fn generate_proposal_prompt(config: &ForumConfig) -> String {
     format!(
         "# Forum Topic\n\n\
-         {}\n\n\
+         {}{}\n\n\
          ## Instructions\n\n\
          You are participating in a structured deliberation. \
          Provide your independent analysis and proposal for the topic above.\n\n\
@@ -256,7 +268,8 @@ fn generate_proposal_prompt(config: &ForumConfig) -> String {
          - Potential risks and mitigations\n\
          - Specific evidence or examples supporting your position\n\n\
          Write your response in clear, structured markdown.\n",
-        config.forum.topic
+        config.forum.topic,
+        context_section(config),
     )
 }
 
@@ -272,8 +285,9 @@ fn generate_crossexam_prompt(
     let assignments = assign_cross_exam(&config.participants.names);
 
     let mut prompt = format!(
-        "# Forum Topic\n\n{}\n\n## Round 1 Responses\n",
-        config.forum.topic
+        "# Forum Topic\n\n{}{}\n\n## Round 1 Responses\n",
+        config.forum.topic,
+        context_section(config),
     );
 
     for name in &config.participants.names {
@@ -316,7 +330,7 @@ fn generate_revision_prompt(
         .last()
         .ok_or_else(|| anyhow::anyhow!("No prior round data for revision"))?;
 
-    let mut prompt = format!("# Forum Topic\n\n{}\n\n", config.forum.topic);
+    let mut prompt = format!("# Forum Topic\n\n{}{}\n\n", config.forum.topic, context_section(config));
 
     if let Some(ref synth) = last.synthesis {
         prompt.push_str(&format!("## Previous Round Synthesis\n{}\n\n", synth));
@@ -538,6 +552,7 @@ mod tests {
                 created: "2026-03-27".into(),
                 max_rounds: 3,
                 protocol: "delphi-crossexam".into(),
+                context: None,
             },
             participants: ParticipantsSection {
                 names: vec!["alice".into(), "bob".into()],

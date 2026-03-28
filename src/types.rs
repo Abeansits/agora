@@ -22,6 +22,8 @@ pub struct ForumSection {
     pub max_rounds: u32,
     #[serde(default = "default_protocol")]
     pub protocol: String,
+    #[serde(default)]
+    pub context: Option<String>,
 }
 
 fn default_protocol() -> String {

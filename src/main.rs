@@ -37,6 +37,10 @@ enum Commands {
         /// Maximum number of rounds
         #[arg(long, default_value_t = 5)]
         max_rounds: u32,
+
+        /// Supplementary context (file path or inline text) included in every round prompt
+        #[arg(short, long)]
+        context: Option<String>,
     },
 
     /// Check the status of a forum
@@ -90,7 +94,8 @@ fn main() -> Result<()> {
             participant,
             timeout,
             max_rounds,
-        } => cmd_new(&topic, &participant, &timeout, max_rounds),
+            context,
+        } => cmd_new(&topic, &participant, &timeout, max_rounds, context.as_deref()),
         Commands::Status { forum_id } => cmd_status(&forum_id),
         Commands::List => cmd_list(),
         Commands::Result {
@@ -107,7 +112,13 @@ fn main() -> Result<()> {
     }
 }
 
-fn cmd_new(topic: &str, participants: &[String], timeout: &str, max_rounds: u32) -> Result<()> {
+fn cmd_new(
+    topic: &str,
+    participants: &[String],
+    timeout: &str,
+    max_rounds: u32,
+    context: Option<&str>,
+) -> Result<()> {
     // Validate timeout format early
     config::parse_duration(timeout)?;
 
@@ -120,6 +131,22 @@ fn cmd_new(topic: &str, participants: &[String], timeout: &str, max_rounds: u32)
         names.push(name.clone());
         configs.insert(name, pc);
     }
+
+    // Resolve context: if it's a file path that exists, read it; otherwise treat as inline text
+    let context_text = match context {
+        Some(c) => {
+            let path = std::path::Path::new(c);
+            if path.exists() {
+                eprintln!("  Reading context from: {}", path.display());
+                let content = std::fs::read_to_string(path)
+                    .with_context(|| format!("Failed to read context file: {}", path.display()))?;
+                Some(content)
+            } else {
+                Some(c.to_string())
+            }
+        }
+        None => None,
+    };
 
     // Generate forum ID: agora-YYYY-MM-DD-NNN
     let id = format!(
@@ -135,6 +162,7 @@ fn cmd_new(topic: &str, participants: &[String], timeout: &str, max_rounds: u32)
             created: chrono::Utc::now().to_rfc3339(),
             max_rounds,
             protocol: "delphi-crossexam".to_string(),
+            context: context_text,
         },
         participants: ParticipantsSection { names, configs },
         timing: TimingSection {
