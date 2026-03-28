@@ -113,10 +113,53 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
     }
 }
 
-/// Parse a CLI participant spec like "name:type:command" or "name:manual"
+/// Built-in presets for common model CLIs.
+/// Returns Some((participant_type, command)) if the name matches a preset.
+pub fn preset_command(name: &str) -> Option<(&'static str, &'static str)> {
+    match name {
+        "codex" => Some(("command", "codex exec --full-auto -")),
+        "gemini" => Some(("command", "gemini -p \" \"")),
+        "claude" => Some(("command", "claude -p \"$(cat {prompt_file})\"")),
+        "opencode" => Some(("command", "opencode run")),
+        _ => None,
+    }
+}
+
+/// Parse a CLI participant spec. Supports three formats:
+///   - "codex"                  → built-in preset (if name matches)
+///   - "name:manual"            → manual participant
+///   - "name:command:cmd string" → custom command participant
 pub fn parse_participant_spec(spec: &str) -> Result<(String, ParticipantConfig)> {
     let parts: Vec<&str> = spec.splitn(3, ':').collect();
     match parts.len() {
+        1 => {
+            // Bare name — check for preset
+            let name = parts[0].to_string();
+            if let Some((ptype, cmd)) = preset_command(&name) {
+                Ok((
+                    name,
+                    ParticipantConfig {
+                        participant_type: ptype.to_string(),
+                        command: Some(cmd.to_string()),
+                    },
+                ))
+            } else if name == "human" {
+                Ok((
+                    name,
+                    ParticipantConfig {
+                        participant_type: "manual".to_string(),
+                        command: None,
+                    },
+                ))
+            } else {
+                let presets: Vec<&str> = ["codex", "gemini", "claude", "opencode", "human"].into();
+                anyhow::bail!(
+                    "Unknown preset '{}'. Available presets: {}. Or use name:command:\"cmd\"",
+                    name,
+                    presets.join(", ")
+                )
+            }
+        }
         2 => {
             let name = parts[0].to_string();
             let ptype = parts[1].to_string();
@@ -148,7 +191,7 @@ pub fn parse_participant_spec(spec: &str) -> Result<(String, ParticipantConfig)>
             ))
         }
         _ => anyhow::bail!(
-            "Invalid participant spec '{}' (expected name:type or name:type:command)",
+            "Invalid participant spec '{}' (expected preset name, name:manual, or name:command:\"cmd\")",
             spec
         ),
     }
@@ -175,6 +218,35 @@ mod tests {
         assert_eq!(parse_duration("1h").unwrap(), Duration::from_secs(3600));
         assert!(parse_duration("abc").is_err());
         assert!(parse_duration("").is_err());
+    }
+
+    #[test]
+    fn test_parse_participant_preset_codex() {
+        let (name, config) = parse_participant_spec("codex").unwrap();
+        assert_eq!(name, "codex");
+        assert_eq!(config.participant_type, "command");
+        assert!(config.command.as_ref().unwrap().contains("codex exec"));
+    }
+
+    #[test]
+    fn test_parse_participant_preset_gemini() {
+        let (name, config) = parse_participant_spec("gemini").unwrap();
+        assert_eq!(name, "gemini");
+        assert_eq!(config.participant_type, "command");
+        assert!(config.command.as_ref().unwrap().contains("gemini"));
+    }
+
+    #[test]
+    fn test_parse_participant_preset_human() {
+        let (name, config) = parse_participant_spec("human").unwrap();
+        assert_eq!(name, "human");
+        assert_eq!(config.participant_type, "manual");
+        assert!(config.command.is_none());
+    }
+
+    #[test]
+    fn test_parse_participant_preset_unknown() {
+        assert!(parse_participant_spec("unknownmodel").is_err());
     }
 
     #[test]

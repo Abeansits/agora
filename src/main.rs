@@ -1,6 +1,7 @@
 mod config;
 mod convergence;
 mod protocol;
+mod report;
 mod substrate;
 mod synthesis;
 mod types;
@@ -25,7 +26,7 @@ enum Commands {
         /// The topic or question for deliberation
         topic: String,
 
-        /// Participants (format: name:command:"cmd" or name:manual)
+        /// Participants: preset name (codex, gemini, claude, opencode, human) or name:command:"cmd"
         #[arg(short, long, required = true)]
         participant: Vec<String>,
 
@@ -51,6 +52,14 @@ enum Commands {
     Result {
         /// Forum ID
         forum_id: String,
+
+        /// Generate an HTML report to final/report.html
+        #[arg(long)]
+        html: bool,
+
+        /// Publish the HTML report via here.now (requires --html)
+        #[arg(long, requires = "html")]
+        publish: bool,
     },
 
     /// Manually submit a response (for human participants)
@@ -84,7 +93,11 @@ fn main() -> Result<()> {
         } => cmd_new(&topic, &participant, &timeout, max_rounds),
         Commands::Status { forum_id } => cmd_status(&forum_id),
         Commands::List => cmd_list(),
-        Commands::Result { forum_id } => cmd_result(&forum_id),
+        Commands::Result {
+            forum_id,
+            html,
+            publish,
+        } => cmd_result(&forum_id, html, publish),
         Commands::Respond {
             forum_id,
             round,
@@ -238,7 +251,7 @@ fn cmd_list() -> Result<()> {
     Ok(())
 }
 
-fn cmd_result(forum_id: &str) -> Result<()> {
+fn cmd_result(forum_id: &str, html: bool, publish: bool) -> Result<()> {
     let forum_path = substrate::forum_dir(forum_id);
     let final_dir = forum_path.join("final");
 
@@ -250,13 +263,38 @@ fn cmd_result(forum_id: &str) -> Result<()> {
         );
     }
 
-    // Print synthesis
+    if html {
+        let cfg = config::load(&forum_path.join("meta.toml"))?;
+        let report_path = final_dir.join("report.html");
+        let html_content = report::generate_html_report(&cfg, &forum_path)?;
+        std::fs::write(&report_path, &html_content)
+            .with_context(|| "Failed to write report.html")?;
+        eprintln!("Report written to: {}", report_path.display());
+
+        if publish {
+            eprintln!("Publishing via here.now...");
+            let output = std::process::Command::new("herenow")
+                .arg("publish")
+                .arg(&report_path)
+                .output()
+                .with_context(|| "Failed to run 'herenow publish'. Is here.now installed?")?;
+            if output.status.success() {
+                let url = String::from_utf8_lossy(&output.stdout);
+                println!("{}", url.trim());
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("herenow publish failed: {}", stderr);
+            }
+        }
+        return Ok(());
+    }
+
+    // Default: print to terminal
     let synthesis_path = final_dir.join("synthesis.md");
     if synthesis_path.exists() {
         println!("{}", substrate::read_file(&synthesis_path)?);
     }
 
-    // Print dissent if present and meaningful
     let dissent_path = final_dir.join("dissent.md");
     if dissent_path.exists() {
         let content = substrate::read_file(&dissent_path)?;
@@ -265,7 +303,6 @@ fn cmd_result(forum_id: &str) -> Result<()> {
         }
     }
 
-    // Print meta summary
     let meta_path = final_dir.join("meta-summary.toml");
     if meta_path.exists() {
         eprintln!("\n--- Meta ---");
