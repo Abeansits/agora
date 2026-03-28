@@ -211,15 +211,15 @@ fn cmd_new(
     let forum_path = substrate::create_forum_dir(&id)?;
     config::save(&forum_config, &forum_path.join("meta.toml"))?;
 
-    eprintln!("Forum created: {}", id);
-    eprintln!("  Path:         {}", forum_path.display());
-    eprintln!("  Topic:        {}", topic);
+    print_banner();
+    eprintln!();
+    eprintln!("  Forum  {}", id);
+    eprintln!("  Topic  {}", topic);
     eprintln!(
-        "  Participants: {}",
+        "  With   {}",
         forum_config.participants.names.join(", ")
     );
-    eprintln!("  Max rounds:   {}", max_rounds);
-    eprintln!("  Timeout:      {}", timeout);
+    eprintln!("  Rules  {} rounds, {} timeout", max_rounds, timeout);
     eprintln!();
 
     // Run the deliberation (blocking)
@@ -392,6 +392,30 @@ fn cmd_respond(forum_id: &str, round: u32, participant: &str, file: &PathBuf) ->
     );
 
     Ok(())
+}
+
+fn print_banner() {
+    let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
+    let (dim, reset, accent) = if is_tty {
+        ("\x1b[2m", "\x1b[0m", "\x1b[38;5;75m")
+    } else {
+        ("", "", "")
+    };
+    eprint!("{}", accent);
+    eprintln!(r"");
+    eprintln!(r"   █████╗  ██████╗  ██████╗ ██████╗  █████╗ ");
+    eprintln!(r"  ██╔══██╗██╔════╝ ██╔═══██╗██╔══██╗██╔══██╗");
+    eprintln!(r"  ███████║██║  ███╗██║   ██║██████╔╝███████║");
+    eprintln!(r"  ██╔══██║██║   ██║██║   ██║██╔══██╗██╔══██║");
+    eprintln!(r"  ██║  ██║╚██████╔╝╚██████╔╝██║  ██║██║  ██║");
+    eprintln!(r"  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝");
+    eprint!("{}", reset);
+    eprintln!(
+        "  {}v{}  Structured deliberation between AI models{}",
+        dim,
+        env!("CARGO_PKG_VERSION"),
+        reset,
+    );
 }
 
 fn cmd_preset_add(name: &str, command: &str) -> Result<()> {
