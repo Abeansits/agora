@@ -26,22 +26,20 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
         for (i, name) in config.participants.names.iter().enumerate() {
             let response = read_optional(&round_dir.join(format!("{}.md", name)));
             let checked = if i == 0 { " checked" } else { "" };
-            let response_escaped = escape_html(&response);
             responses_html.push_str(&format!(
                 r#"<input type="radio" name="round{r}-tab" id="round{r}-{name}" class="tab-input"{checked}>
 <label for="round{r}-{name}" class="tab-label">{name}</label>
-<div class="tab-content"><div class="markdown">{response_escaped}</div></div>
+<div class="tab-content"><div class="md-render"><textarea class="md-src">{response_escaped}</textarea></div></div>
 "#,
                 r = r,
                 name = name,
                 checked = checked,
-                response_escaped = response_escaped,
+                response_escaped = escape_html_attr(&response),
             ));
         }
 
         // Read synthesis
         let synthesis = read_optional(&round_dir.join("synthesis.md"));
-        let synthesis_escaped = escape_html(&synthesis);
 
         let prompt_summary = prompt
             .lines()
@@ -65,16 +63,16 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
   </div>
 
   <div class="section-label">Synthesis</div>
-  <div class="synthesis markdown">{synthesis_escaped}</div>
+  <div class="synthesis md-render"><textarea class="md-src">{synthesis_escaped}</textarea></div>
 </div>
 </details>
 "#,
             r = r,
             stage = stage,
             open = if r == total_rounds { "open" } else { "" },
-            prompt_summary = escape_html(&prompt_summary),
+            prompt_summary = escape_html_attr(&prompt_summary),
             responses_html = responses_html,
-            synthesis_escaped = synthesis_escaped,
+            synthesis_escaped = escape_html_attr(&synthesis),
         ));
     }
 
@@ -126,9 +124,9 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
         format!(
             r#"<div class="final-section dissent-section">
   <h2>Dissent</h2>
-  <div class="markdown">{}</div>
+  <div class="md-render"><textarea class="md-src">{}</textarea></div>
 </div>"#,
-            escape_html(&final_dissent)
+            escape_html_attr(&final_dissent)
         )
     } else {
         String::new()
@@ -140,7 +138,7 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
   <h2>Claims</h2>
   <pre class="claims-pre">{}</pre>
 </div>"#,
-            escape_html(&final_claims)
+            escape_html_attr(&final_claims)
         )
     } else {
         String::new()
@@ -189,7 +187,7 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
 <section class="final-output">
   <div class="final-section synthesis-final">
     <h2>Final Synthesis</h2>
-    <div class="markdown">{final_synthesis}</div>
+    <div class="md-render"><textarea class="md-src">{final_synthesis}</textarea></div>
   </div>
 
   {dissent_section}
@@ -202,22 +200,31 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
 </footer>
 
 </div>
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<script>
+document.querySelectorAll('.md-render').forEach(el => {{
+  const src = el.querySelector('.md-src');
+  if (src) {{
+    el.innerHTML = marked.parse(src.value);
+  }}
+}});
+</script>
 </body>
 </html>"##,
         css = CSS,
-        topic = escape_html(&config.forum.topic),
-        forum_id = escape_html(&config.forum.id),
-        protocol = escape_html(&config.forum.protocol),
+        topic = escape_html_attr(&config.forum.topic),
+        forum_id = escape_html_attr(&config.forum.id),
+        protocol = escape_html_attr(&config.forum.protocol),
         total_rounds = total_rounds,
         participants_list = participants_list,
         score_color = score_color,
         score = score,
         status = status,
         rounds_html = rounds_html,
-        final_synthesis = escape_html(&final_synthesis),
+        final_synthesis = escape_html_attr(&final_synthesis),
         dissent_section = dissent_section,
         claims_section = claims_section,
-        created = escape_html(&config.forum.created),
+        created = escape_html_attr(&config.forum.created),
     ))
 }
 
@@ -225,12 +232,12 @@ fn read_optional(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_default()
 }
 
-fn escape_html(s: &str) -> String {
+/// Escape for embedding in HTML textarea content or attributes.
+/// Only need to escape < and & (textarea doesn't interpret HTML tags).
+fn escape_html_attr(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\n', "<br>\n")
 }
 
 const CSS: &str = r#"
@@ -488,12 +495,104 @@ h2 {
   border: 1px solid var(--border);
 }
 
-.markdown {
+/* Hide raw markdown source textareas */
+.md-src { display: none; }
+
+/* Rendered markdown styles */
+.md-render {
   font-size: 14px;
   line-height: 1.7;
   color: var(--text);
   word-wrap: break-word;
 }
+
+.md-render h1, .md-render h2, .md-render h3, .md-render h4 {
+  color: var(--text);
+  margin: 20px 0 8px;
+  line-height: 1.3;
+}
+
+.md-render h1 { font-size: 20px; }
+.md-render h2 { font-size: 17px; }
+.md-render h3 { font-size: 15px; }
+
+.md-render p { margin: 8px 0; }
+
+.md-render ul, .md-render ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.md-render li { margin: 4px 0; }
+
+.md-render strong { color: var(--text); font-weight: 600; }
+
+.md-render code {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.md-render pre {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.md-render pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.md-render table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.md-render th, .md-render td {
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.md-render th {
+  background: var(--surface-2);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.md-render td { color: var(--text-dim); }
+
+.md-render blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 4px 16px;
+  margin: 12px 0;
+  color: var(--text-dim);
+}
+
+.md-render hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 20px 0;
+}
+
+.md-render a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.md-render a:hover { text-decoration: underline; }
 
 .final-output {
   margin-bottom: 40px;
@@ -552,10 +651,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_escape_html() {
-        assert_eq!(escape_html("<script>"), "&lt;script&gt;");
-        assert_eq!(escape_html("a & b"), "a &amp; b");
-        assert_eq!(escape_html("\"hi\""), "&quot;hi&quot;");
+    fn test_escape_html_attr() {
+        assert_eq!(escape_html_attr("<script>"), "&lt;script&gt;");
+        assert_eq!(escape_html_attr("a & b"), "a &amp; b");
+        assert_eq!(escape_html_attr("a > b"), "a &gt; b");
     }
 
     #[test]
