@@ -1,5 +1,6 @@
 mod config;
 mod convergence;
+mod eval;
 mod protocol;
 mod report;
 mod substrate;
@@ -89,6 +90,44 @@ enum Commands {
         #[command(subcommand)]
         action: PresetAction,
     },
+
+    /// Evaluate: compare single-model baseline vs. Agora forum (blind judged)
+    Eval {
+        /// The question or topic to evaluate
+        topic: String,
+
+        /// Baseline model preset (single-model response)
+        #[arg(short, long)]
+        baseline: String,
+
+        /// Forum participants (comma-separated presets)
+        #[arg(short, long, value_delimiter = ',')]
+        forum: Vec<String>,
+
+        /// Judge model preset (default: auto-select one not in forum)
+        #[arg(short, long)]
+        judge: Option<String>,
+
+        /// Supplementary context (file path or inline text)
+        #[arg(short, long)]
+        context: Option<String>,
+
+        /// Timeout per participant
+        #[arg(short, long, default_value = "5m")]
+        timeout: String,
+
+        /// Max rounds for the forum
+        #[arg(long, default_value_t = 3)]
+        max_rounds: u32,
+
+        /// Generate HTML report
+        #[arg(long)]
+        html: bool,
+
+        /// Eval ID to generate HTML for (instead of running a new eval)
+        #[arg(long)]
+        report: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -133,6 +172,20 @@ fn main() -> Result<()> {
             participant,
             file,
         } => cmd_respond(&forum_id, round, &participant, &file),
+        Commands::Eval {
+            topic,
+            baseline,
+            forum,
+            judge,
+            context,
+            timeout,
+            max_rounds,
+            html,
+            report,
+        } => cmd_eval(
+            &topic, &baseline, &forum, judge.as_deref(), context.as_deref(),
+            &timeout, max_rounds, html, report.as_deref(),
+        ),
         Commands::Preset { action } => match action {
             PresetAction::Add { name, command } => cmd_preset_add(&name, &command),
             PresetAction::List => cmd_preset_list(),
@@ -416,6 +469,91 @@ fn print_banner() {
         env!("CARGO_PKG_VERSION"),
         reset,
     );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cmd_eval(
+    topic: &str,
+    baseline: &str,
+    forum: &[String],
+    judge: Option<&str>,
+    context: Option<&str>,
+    timeout: &str,
+    max_rounds: u32,
+    html: bool,
+    report: Option<&str>,
+) -> Result<()> {
+    // HTML report for existing eval
+    if let Some(eval_id) = report {
+        let eval_dir = eval::evals_dir().join(eval_id);
+        if !eval_dir.exists() {
+            anyhow::bail!("Eval not found: {}", eval_id);
+        }
+        let html_content = eval::generate_eval_html(&eval_dir)?;
+        let report_path = eval_dir.join("report.html");
+        std::fs::write(&report_path, &html_content)?;
+        eprintln!("Report: {}", report_path.display());
+        return Ok(());
+    }
+
+    config::parse_duration(timeout)?;
+
+    // Auto-select judge: pick a model not in the forum
+    let judge_preset = match judge {
+        Some(j) => j.to_string(),
+        None => {
+            let candidates = ["claude", "gemini", "codex", "opencode"];
+            candidates
+                .iter()
+                .find(|c| !forum.contains(&c.to_string()) && **c != baseline)
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "claude".to_string())
+        }
+    };
+
+    // Resolve context
+    let context_text = match context {
+        Some(c) => {
+            let path = std::path::Path::new(c);
+            if path.exists() {
+                Some(std::fs::read_to_string(path)
+                    .with_context(|| format!("Failed to read context file: {}", path.display()))?)
+            } else {
+                Some(c.to_string())
+            }
+        }
+        None => None,
+    };
+
+    print_banner();
+    eprintln!();
+    eprintln!("  Mode     EVAL (baseline vs. forum)");
+    eprintln!("  Topic    {}", topic);
+    eprintln!("  Baseline {}", baseline);
+    eprintln!("  Forum    {}", forum.join(", "));
+    eprintln!("  Judge    {}", judge_preset);
+    eprintln!();
+
+    let cfg = eval::EvalConfig {
+        topic: topic.to_string(),
+        context: context_text,
+        baseline_preset: baseline.to_string(),
+        forum_presets: forum.to_vec(),
+        judge_preset,
+        timeout: timeout.to_string(),
+        max_rounds,
+    };
+
+    let result = eval::run_eval(&cfg)?;
+
+    if html {
+        let html_content = eval::generate_eval_html(&result.eval_dir)?;
+        let report_path = result.eval_dir.join("report.html");
+        std::fs::write(&report_path, &html_content)?;
+        eprintln!("HTML report: {}", report_path.display());
+    }
+
+    Ok(())
 }
 
 fn cmd_preset_add(name: &str, command: &str) -> Result<()> {
