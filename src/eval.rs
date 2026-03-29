@@ -193,6 +193,7 @@ fn build_forum_config(cfg: &EvalConfig) -> Result<ForumConfig> {
             max_rounds: cfg.max_rounds,
             protocol: "delphi-crossexam".to_string(),
             context: cfg.context.clone(),
+            output_format: None,
         },
         participants: ParticipantsSection { names, configs },
         timing: TimingSection {

@@ -24,6 +24,8 @@ pub struct ForumSection {
     pub protocol: String,
     #[serde(default)]
     pub context: Option<String>,
+    #[serde(default)]
+    pub output_format: Option<String>,
 }
 
 fn default_protocol() -> String {

@@ -11,9 +11,14 @@ pub fn generate_synthesis(
     stage: &Stage,
     responses: &HashMap<String, String>,
     prior_synthesis: Option<&str>,
+    review_mode: bool,
 ) -> Result<String> {
     let model = config::resolve_model(&synth_config.model);
-    let prompt = build_synthesis_prompt(topic, round, stage, responses, prior_synthesis);
+    let prompt = if review_mode {
+        build_review_synthesis_prompt(topic, round, stage, responses, prior_synthesis)
+    } else {
+        build_synthesis_prompt(topic, round, stage, responses, prior_synthesis)
+    };
     substrate::invoke_model(model, &prompt)
 }
 
@@ -71,6 +76,54 @@ fn build_synthesis_prompt(
          3. Notes the strongest arguments from each position\n\
          4. Is balanced and does not favor any single participant\n\n\
          Write in clear markdown.\n",
+    );
+
+    prompt
+}
+
+fn build_review_synthesis_prompt(
+    topic: &str,
+    round: u32,
+    stage: &Stage,
+    responses: &HashMap<String, String>,
+    prior_synthesis: Option<&str>,
+) -> String {
+    let mut prompt = format!(
+        "You are synthesizing a code review from multiple reviewers.\n\n\
+         Topic: {}\n\
+         Round: {} ({})\n",
+        topic, round, stage
+    );
+
+    if let Some(prior) = prior_synthesis {
+        prompt.push_str(&format!("\n## Prior Round Findings\n{}\n", prior));
+    }
+
+    prompt.push_str("\n## Reviewer Responses\n");
+    let mut names: Vec<&String> = responses.keys().collect();
+    names.sort();
+    for name in &names {
+        prompt.push_str(&format!("\n### {}\n{}\n", name, responses[*name]));
+    }
+
+    prompt.push_str(
+        "\n---\n\n\
+         Produce a prioritized findings list. For each finding:\n\
+         - Severity: [CRITICAL], [HIGH], [MEDIUM], or [LOW]\n\
+         - Title and location (file:line if mentioned by reviewers)\n\
+         - Description of the issue and its impact\n\
+         - **Fix:** Concrete fix instruction\n\
+         - **Confidence:** High if all reviewers agree, Medium if contested, \
+         Low if only one reviewer raised it\n\n\
+         Format each finding as:\n\
+         ### [SEVERITY] Issue title — file:line\n\
+         Description.\n\
+         **Fix:** ...\n\
+         **Confidence:** High/Medium/Low (note dissenting views if any)\n\n\
+         Sort by severity (CRITICAL first). Only include findings that survived \
+         cross-examination — if a finding was raised then refuted and dropped, \
+         do not include it. If a finding was contested but not resolved, include \
+         it with Confidence: Medium and note the disagreement.\n",
     );
 
     prompt

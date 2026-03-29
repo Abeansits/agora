@@ -7,6 +7,7 @@ use std::path::Path;
 /// Run a complete forum deliberation through the modified Delphi protocol
 pub fn run_forum(forum_config: &ForumConfig, forum_path: &Path) -> Result<()> {
     let mut prior_rounds: Vec<RoundData> = Vec::new();
+    let review_mode = is_review_mode(forum_config);
 
     for round_num in 1..=forum_config.forum.max_rounds {
         let stage = match round_num {
@@ -49,6 +50,7 @@ pub fn run_forum(forum_config: &ForumConfig, forum_path: &Path) -> Result<()> {
             &stage,
             &responses,
             prior_synth,
+            review_mode,
         )?;
         substrate::write_atomic(&round_dir.join("synthesis.md"), &synth)?;
 
@@ -449,6 +451,19 @@ fn write_final_output(
     Ok(())
 }
 
+/// Detect review mode from output_format field or topic keywords
+fn is_review_mode(config: &ForumConfig) -> bool {
+    if let Some(ref fmt) = config.forum.output_format {
+        if fmt == "review" {
+            return true;
+        }
+    }
+    let topic_lower = config.forum.topic.to_lowercase();
+    topic_lower.contains("code review")
+        || topic_lower.contains("review this")
+        || topic_lower.contains("review the")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -553,6 +568,7 @@ mod tests {
                 max_rounds: 3,
                 protocol: "delphi-crossexam".into(),
                 context: None,
+                output_format: None,
             },
             participants: ParticipantsSection {
                 names: vec!["alice".into(), "bob".into()],

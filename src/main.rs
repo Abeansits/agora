@@ -42,6 +42,10 @@ enum Commands {
         /// Supplementary context (file path or inline text) included in every round prompt
         #[arg(short, long)]
         context: Option<String>,
+
+        /// Output format: "review" produces a prioritized findings list instead of narrative
+        #[arg(long)]
+        output_format: Option<String>,
     },
 
     /// Check the status of a forum
@@ -112,8 +116,8 @@ enum Commands {
         #[arg(short, long)]
         context: Option<String>,
 
-        /// Timeout per participant
-        #[arg(short, long, default_value = "5m")]
+        /// Timeout per participant (default 10m for thorough eval)
+        #[arg(short, long, default_value = "10m")]
         timeout: String,
 
         /// Max rounds for the forum
@@ -158,7 +162,8 @@ fn main() -> Result<()> {
             timeout,
             max_rounds,
             context,
-        } => cmd_new(&topic, &participant, &timeout, max_rounds, context.as_deref()),
+            output_format,
+        } => cmd_new(&topic, &participant, &timeout, max_rounds, context.as_deref(), output_format.as_deref()),
         Commands::Status { forum_id } => cmd_status(&forum_id),
         Commands::List => cmd_list(),
         Commands::Result {
@@ -200,6 +205,7 @@ fn cmd_new(
     timeout: &str,
     max_rounds: u32,
     context: Option<&str>,
+    output_format: Option<&str>,
 ) -> Result<()> {
     // Validate timeout format early
     config::parse_duration(timeout)?;
@@ -245,6 +251,7 @@ fn cmd_new(
             max_rounds,
             protocol: "delphi-crossexam".to_string(),
             context: context_text,
+            output_format: output_format.map(|s| s.to_string()),
         },
         participants: ParticipantsSection { names, configs },
         timing: TimingSection {
