@@ -297,3 +297,7 @@ Participants (any CLI, LLM, or human)
     - Evaluates convergence (LLM judge)
     - Writes final output
 ```
+
+---
+
+<p align="center">Built on 🌍 with ❤️</p>
