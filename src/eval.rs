@@ -34,12 +34,14 @@ pub struct ScoreSet {
     pub counterarguments: f32,
     pub actionability: f32,
     pub blind_spots: f32,
+    pub precision: f32,
     pub overall: f32,
 }
 
 impl ScoreSet {
     fn avg(&self) -> f32 {
-        (self.completeness + self.counterarguments + self.actionability + self.blind_spots + self.overall) / 5.0
+        (self.completeness + self.counterarguments + self.actionability
+            + self.blind_spots + self.precision + self.overall) / 6.0
     }
 }
 
@@ -264,10 +266,14 @@ fn build_judge_prompt(topic: &str, response_a: &str, response_b: &str) -> String
          - **Counterarguments**: Does it surface opposing views and tradeoffs?\n\
          - **Actionability**: How concrete and implementable are the recommendations?\n\
          - **Blind spots**: Does it identify risks, assumptions, or gaps?\n\
+         - **Precision**: Of the issues identified, how many are genuine versus false positives, \
+         overstated concerns, or misattributed problems? 10 = every finding is accurate and \
+         correctly scoped. Penalize responses that report issues that aren't actually bugs or \
+         overstate severity.\n\
          - **Overall**: Overall quality of analysis\n\n\
          Respond in EXACTLY this format:\n\
-         SCORES_A: completeness=N counterarguments=N actionability=N blind_spots=N overall=N\n\
-         SCORES_B: completeness=N counterarguments=N actionability=N blind_spots=N overall=N\n\
+         SCORES_A: completeness=N counterarguments=N actionability=N blind_spots=N precision=N overall=N\n\
+         SCORES_B: completeness=N counterarguments=N actionability=N blind_spots=N precision=N overall=N\n\
          REASONING: <your detailed comparison and reasoning>\n",
         topic = topic,
         response_a = response_a,
@@ -307,6 +313,7 @@ fn parse_score_line(output: &str, prefix: &str) -> ScoreSet {
         counterarguments: get("counterarguments"),
         actionability: get("actionability"),
         blind_spots: get("blind_spots"),
+        precision: get("precision"),
         overall: get("overall"),
     }
 }
@@ -354,6 +361,7 @@ fn build_comparison_report(
          | Counterarguments | {bca:.1} | {fca:.1} | {dca:+.1} |\n\
          | Actionability | {ba:.1} | {fa:.1} | {da:+.1} |\n\
          | Blind spots | {bbs:.1} | {fbs:.1} | {dbs:+.1} |\n\
+         | Precision | {bp:.1} | {fp:.1} | {dp:+.1} |\n\
          | **Overall** | **{bo:.1}** | **{fo:.1}** | **{do_:+.1}** |\n\
          | **Average** | **{bavg:.1}** | **{favg:.1}** | **{davg:+.1}** |\n\n\
          ## Judge Assignment\n\n\
@@ -382,6 +390,9 @@ fn build_comparison_report(
         bbs = scores.baseline.blind_spots,
         fbs = scores.forum.blind_spots,
         dbs = scores.forum.blind_spots - scores.baseline.blind_spots,
+        bp = scores.baseline.precision,
+        fp = scores.forum.precision,
+        dp = scores.forum.precision - scores.baseline.precision,
         bo = scores.baseline.overall,
         fo = scores.forum.overall,
         do_ = scores.forum.overall - scores.baseline.overall,
@@ -410,6 +421,7 @@ fn write_scores_toml(path: &Path, scores: &Scores, baseline_first: bool, cfg: &E
          counterarguments = {bca:.1}\n\
          actionability = {ba:.1}\n\
          blind_spots = {bbs:.1}\n\
+         precision = {bpr:.1}\n\
          overall = {bo:.1}\n\
          average = {bavg:.1}\n\n\
          [forum]\n\
@@ -417,6 +429,7 @@ fn write_scores_toml(path: &Path, scores: &Scores, baseline_first: bool, cfg: &E
          counterarguments = {fca:.1}\n\
          actionability = {fa:.1}\n\
          blind_spots = {fbs:.1}\n\
+         precision = {fpr:.1}\n\
          overall = {fo:.1}\n\
          average = {favg:.1}\n",
         a = if baseline_first { "baseline" } else { "forum" },
@@ -430,12 +443,14 @@ fn write_scores_toml(path: &Path, scores: &Scores, baseline_first: bool, cfg: &E
         bca = scores.baseline.counterarguments,
         ba = scores.baseline.actionability,
         bbs = scores.baseline.blind_spots,
+        bpr = scores.baseline.precision,
         bo = scores.baseline.overall,
         bavg = scores.baseline.avg(),
         fc = scores.forum.completeness,
         fca = scores.forum.counterarguments,
         fa = scores.forum.actionability,
         fbs = scores.forum.blind_spots,
+        fpr = scores.forum.precision,
         fo = scores.forum.overall,
         favg = scores.forum.avg(),
     );
@@ -575,6 +590,7 @@ footer {{ margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--borde
 <tr><td>Counterarguments</td><td>{b_counter}</td><td>{f_counter}</td></tr>
 <tr><td>Actionability</td><td>{b_action}</td><td>{f_action}</td></tr>
 <tr><td>Blind spots</td><td>{b_blind}</td><td>{f_blind}</td></tr>
+<tr><td>Precision</td><td>{b_precision}</td><td>{f_precision}</td></tr>
 <tr><td><strong>Overall</strong></td><td><strong>{b_overall}</strong></td><td><strong>{f_overall}</strong></td></tr>
 </table>
 
@@ -624,6 +640,8 @@ document.querySelectorAll('.md-render').forEach(el => {{
         f_action = get_score("forum", "actionability"),
         b_blind = get_score("baseline", "blind_spots"),
         f_blind = get_score("forum", "blind_spots"),
+        b_precision = get_score("baseline", "precision"),
+        f_precision = get_score("forum", "precision"),
         b_overall = b_overall,
         f_overall = f_overall,
         comparison_escaped = esc(&comparison),
@@ -649,23 +667,25 @@ mod tests {
     #[test]
     fn test_parse_judge_scores_baseline_first() {
         let output = "\
-SCORES_A: completeness=8 counterarguments=7 actionability=9 blind_spots=6 overall=8
-SCORES_B: completeness=9 counterarguments=9 actionability=8 blind_spots=8 overall=9
+SCORES_A: completeness=8 counterarguments=7 actionability=9 blind_spots=6 precision=7 overall=8
+SCORES_B: completeness=9 counterarguments=9 actionability=8 blind_spots=8 precision=9 overall=9
 REASONING: Response B was more thorough.";
 
         let scores = parse_judge_scores(output, true).unwrap();
         // A=baseline, B=forum
         assert!((scores.baseline.completeness - 8.0).abs() < 0.01);
+        assert!((scores.baseline.precision - 7.0).abs() < 0.01);
         assert!((scores.baseline.overall - 8.0).abs() < 0.01);
         assert!((scores.forum.completeness - 9.0).abs() < 0.01);
+        assert!((scores.forum.precision - 9.0).abs() < 0.01);
         assert!((scores.forum.overall - 9.0).abs() < 0.01);
     }
 
     #[test]
     fn test_parse_judge_scores_forum_first() {
         let output = "\
-SCORES_A: completeness=9 counterarguments=9 actionability=8 blind_spots=8 overall=9
-SCORES_B: completeness=7 counterarguments=6 actionability=7 blind_spots=5 overall=7
+SCORES_A: completeness=9 counterarguments=9 actionability=8 blind_spots=8 precision=8 overall=9
+SCORES_B: completeness=7 counterarguments=6 actionability=7 blind_spots=5 precision=6 overall=7
 REASONING: Response A was better.";
 
         let scores = parse_judge_scores(output, false).unwrap();
@@ -688,8 +708,10 @@ REASONING: Response A was better.";
             counterarguments: 6.0,
             actionability: 10.0,
             blind_spots: 4.0,
+            precision: 7.0,
             overall: 7.0,
         };
+        // (8+6+10+4+7+7)/6 = 42/6 = 7.0
         assert!((s.avg() - 7.0).abs() < 0.01);
     }
 
