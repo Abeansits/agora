@@ -4,12 +4,23 @@ use rand::seq::SliceRandom;
 use std::collections::HashMap;
 use std::path::Path;
 
-/// Run a complete forum deliberation through the modified Delphi protocol
+/// Run a complete forum deliberation through the modified Delphi protocol.
+/// Supports auto-extend: if convergence score < 5 at max_rounds, runs one extra round
+/// to avoid premature termination while capping sycophancy from over-deliberation.
 pub fn run_forum(forum_config: &ForumConfig, forum_path: &Path) -> Result<()> {
     let mut prior_rounds: Vec<RoundData> = Vec::new();
     let review_mode = is_review_mode(forum_config);
+    let mut effective_max = forum_config.forum.max_rounds;
+    let mut auto_extended = false;
+    let mut last_convergence: Option<ConvergenceResult> = None;
 
-    for round_num in 1..=forum_config.forum.max_rounds {
+    let mut round_num = 0u32;
+    loop {
+        round_num += 1;
+        if round_num > effective_max {
+            break;
+        }
+
         let stage = match round_num {
             1 => Stage::Proposal,
             2 => Stage::CrossExam,
@@ -85,8 +96,8 @@ pub fn run_forum(forum_config: &ForumConfig, forum_path: &Path) -> Result<()> {
             match &result {
                 ConvergenceResult::Converged { score, summary } => {
                     eprintln!("  CONVERGED (score: {:.1}): {}", score, summary);
-                    write_final_output(forum_config, forum_path, &prior_rounds, &result)?;
-                    return Ok(());
+                    last_convergence = Some(result);
+                    break; // converged — exit loop, write final output below
                 }
                 ConvergenceResult::Divergent {
                     score,
@@ -96,28 +107,47 @@ pub fn run_forum(forum_config: &ForumConfig, forum_path: &Path) -> Result<()> {
                     for d in key_disagreements {
                         eprintln!("    - {}", d);
                     }
+
+                    // Auto-extend: if at max_rounds with very low score, add one more round
+                    if round_num == effective_max && *score < 5.0 && !auto_extended {
+                        effective_max += 1;
+                        auto_extended = true;
+                        eprintln!(
+                            "  Auto-extending: score {:.1} < 5.0, adding round {}",
+                            score, effective_max
+                        );
+                    }
+
+                    last_convergence = Some(result);
                 }
             }
         }
     }
 
-    // Max rounds reached without convergence
-    eprintln!(
-        "\n=== Max rounds ({}) reached ===",
-        forum_config.forum.max_rounds
-    );
-    let last_responses = prior_rounds
-        .last()
-        .map(|r| r.responses.clone())
-        .unwrap_or_default();
-    let final_result = convergence::evaluate(
-        &forum_config.convergence,
-        &forum_config.forum.topic,
-        &last_responses,
-        forum_config.convergence.threshold,
-    )?;
-    write_final_output(forum_config, forum_path, &prior_rounds, &final_result)?;
+    // Write final output
+    let final_result = match last_convergence {
+        Some(result) => result,
+        None => {
+            // No convergence check ran (e.g., max_rounds < min_rounds)
+            let last_responses = prior_rounds
+                .last()
+                .map(|r| r.responses.clone())
+                .unwrap_or_default();
+            convergence::evaluate(
+                &forum_config.convergence,
+                &forum_config.forum.topic,
+                &last_responses,
+                forum_config.convergence.threshold,
+            )?
+        }
+    };
 
+    match &final_result {
+        ConvergenceResult::Converged { .. } => {}
+        _ => eprintln!("\n=== Max rounds ({}) reached ===", effective_max),
+    }
+
+    write_final_output(forum_config, forum_path, &prior_rounds, &final_result)?;
     Ok(())
 }
 
