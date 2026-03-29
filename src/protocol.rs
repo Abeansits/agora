@@ -10,6 +10,9 @@ use std::path::Path;
 pub fn run_forum(forum_config: &ForumConfig, forum_path: &Path) -> Result<()> {
     let mut prior_rounds: Vec<RoundData> = Vec::new();
     let review_mode = is_review_mode(forum_config);
+
+    // Warn if judge model family overlaps with participants
+    warn_judge_overlap(forum_config);
     let mut effective_max = forum_config.forum.max_rounds;
     let mut auto_extended = false;
     let mut last_convergence: Option<ConvergenceResult> = None;
@@ -558,6 +561,41 @@ fn write_final_output(
     );
 
     Ok(())
+}
+
+/// Extract model family from a model ID or preset name (e.g., "claude-opus-4-6" → "claude")
+fn model_family(id: &str) -> &str {
+    if id.starts_with("claude") { return "claude"; }
+    if id.starts_with("gpt") || id.contains("codex") { return "openai"; }
+    if id.starts_with("gemini") { return "gemini"; }
+    if id.starts_with("kimi") || id.contains("opencode") { return "moonshot"; }
+    if id.starts_with("llama") || id.starts_with("deepseek") { return "meta/open"; }
+    if id.starts_with("glm") { return "zhipu"; }
+    id.split('-').next().unwrap_or(id)
+}
+
+/// Warn if the convergence judge uses the same model family as a participant
+fn warn_judge_overlap(config: &ForumConfig) {
+    let judge_id = if config.convergence.judge_command.is_some() {
+        // Custom command — try to resolve from the model field
+        config::resolve_model_id(&config.convergence.judge_model)
+    } else {
+        crate::config::resolve_model(&config.convergence.judge_model).to_string()
+    };
+    let judge_fam = model_family(&judge_id);
+
+    for name in &config.participants.names {
+        let participant_id = config::resolve_model_id(name);
+        let participant_fam = model_family(&participant_id);
+        if judge_fam == participant_fam {
+            eprintln!(
+                "  Warning: convergence judge ({}) is same model family as participant {} ({}). \
+                 Consider using a different judge to avoid self-evaluation bias.",
+                judge_id, name, participant_id,
+            );
+            return; // one warning is enough
+        }
+    }
 }
 
 /// Detect review mode from output_format field or topic keywords

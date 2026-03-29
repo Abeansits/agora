@@ -371,8 +371,24 @@ impl Drop for CleanupGuard {
     }
 }
 
-/// Invoke the claude CLI with a prompt and return the response
-pub fn invoke_model(model: &str, prompt: &str) -> Result<String> {
+/// Invoke a model for fire keeper internal operations (synthesis, convergence).
+/// If a custom command is provided, routes through invoke_command.
+/// Otherwise falls back to the claude CLI with the given model ID.
+pub fn invoke_fire_keeper_model(
+    custom_command: Option<&str>,
+    model: &str,
+    prompt: &str,
+    timeout: Duration,
+) -> Result<String> {
+    if let Some(cmd) = custom_command {
+        invoke_command(cmd, prompt, timeout)
+    } else {
+        invoke_claude(model, prompt)
+    }
+}
+
+/// Invoke the claude CLI directly (no shell, safe from metacharacters)
+fn invoke_claude(model: &str, prompt: &str) -> Result<String> {
     let output = std::process::Command::new("claude")
         .arg("--model")
         .arg(model)

@@ -85,6 +85,8 @@ pub struct ConvergenceSection {
     pub policy: String,
     #[serde(default = "default_judge_model")]
     pub judge_model: String,
+    #[serde(default)]
+    pub judge_command: Option<String>,
     #[serde(default = "default_threshold")]
     pub threshold: u32,
     #[serde(default = "default_min_rounds")]
@@ -96,6 +98,7 @@ impl Default for ConvergenceSection {
         Self {
             policy: default_policy(),
             judge_model: default_judge_model(),
+            judge_command: None,
             threshold: default_threshold(),
             min_rounds: default_min_rounds(),
         }
@@ -119,6 +122,8 @@ fn default_min_rounds() -> u32 {
 pub struct SynthesisSection {
     #[serde(default = "default_synthesis_model")]
     pub model: String,
+    #[serde(default)]
+    pub command: Option<String>,
     #[serde(default = "default_max_prior_context")]
     pub max_prior_context: u32,
 }
@@ -127,6 +132,7 @@ impl Default for SynthesisSection {
     fn default() -> Self {
         Self {
             model: default_synthesis_model(),
+            command: None,
             max_prior_context: default_max_prior_context(),
         }
     }

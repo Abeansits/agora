@@ -4,6 +4,19 @@ use crate::types::*;
 use anyhow::Result;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
+use std::time::Duration;
+
+const FIRE_KEEPER_TIMEOUT: Duration = Duration::from_secs(600);
+
+fn invoke_judge(convergence_config: &ConvergenceSection, prompt: &str) -> Result<String> {
+    let model = config::resolve_model(&convergence_config.judge_model);
+    substrate::invoke_fire_keeper_model(
+        convergence_config.judge_command.as_deref(),
+        model,
+        prompt,
+        FIRE_KEEPER_TIMEOUT,
+    )
+}
 
 /// Per-participant alignment scores for a round
 pub type AlignmentScores = HashMap<String, f32>;
@@ -15,8 +28,6 @@ pub fn evaluate_alignment(
     synthesis: &str,
     responses: &HashMap<String, String>,
 ) -> Result<AlignmentScores> {
-    let model = config::resolve_model(&convergence_config.judge_model);
-
     let mut prompt = format!(
         "You are scoring how well each participant's position aligns with the group synthesis.\n\n\
          ## Synthesis\n{}\n\n\
@@ -36,7 +47,7 @@ pub fn evaluate_alignment(
          ALIGNMENT: participant_name=score participant_name=score ...\n",
     );
 
-    let output = substrate::invoke_model(model, &prompt)?;
+    let output = invoke_judge(convergence_config, &prompt)?;
     parse_alignment_scores(&output, &names)
 }
 
@@ -72,9 +83,8 @@ pub fn evaluate(
     responses: &HashMap<String, String>,
     threshold: u32,
 ) -> Result<ConvergenceResult> {
-    let model = config::resolve_model(&convergence_config.judge_model);
     let prompt = build_judge_prompt(topic, responses);
-    let output = substrate::invoke_model(model, &prompt)?;
+    let output = invoke_judge(convergence_config, &prompt)?;
     parse_judge_response(&output, threshold)
 }
 

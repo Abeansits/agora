@@ -3,6 +3,19 @@ use crate::substrate;
 use crate::types::*;
 use anyhow::Result;
 use std::collections::HashMap;
+use std::time::Duration;
+
+const FIRE_KEEPER_TIMEOUT: Duration = Duration::from_secs(600);
+
+fn invoke(synth_config: &SynthesisSection, prompt: &str) -> Result<String> {
+    let model = config::resolve_model(&synth_config.model);
+    substrate::invoke_fire_keeper_model(
+        synth_config.command.as_deref(),
+        model,
+        prompt,
+        FIRE_KEEPER_TIMEOUT,
+    )
+}
 
 pub fn generate_synthesis(
     synth_config: &SynthesisSection,
@@ -13,13 +26,12 @@ pub fn generate_synthesis(
     prior_synthesis: Option<&str>,
     review_mode: bool,
 ) -> Result<String> {
-    let model = config::resolve_model(&synth_config.model);
     let prompt = if review_mode {
         build_review_synthesis_prompt(topic, round, stage, responses, prior_synthesis)
     } else {
         build_synthesis_prompt(topic, round, stage, responses, prior_synthesis)
     };
-    substrate::invoke_model(model, &prompt)
+    invoke(synth_config, &prompt)
 }
 
 pub fn generate_claims(
@@ -27,9 +39,8 @@ pub fn generate_claims(
     topic: &str,
     responses: &HashMap<String, String>,
 ) -> Result<String> {
-    let model = config::resolve_model(&synth_config.model);
     let prompt = build_claims_prompt(topic, responses);
-    substrate::invoke_model(model, &prompt)
+    invoke(synth_config, &prompt)
 }
 
 pub fn generate_dissent(
@@ -38,9 +49,8 @@ pub fn generate_dissent(
     responses: &HashMap<String, String>,
     key_disagreements: &[String],
 ) -> Result<String> {
-    let model = config::resolve_model(&synth_config.model);
     let prompt = build_dissent_prompt(topic, responses, key_disagreements);
-    substrate::invoke_model(model, &prompt)
+    invoke(synth_config, &prompt)
 }
 
 fn build_synthesis_prompt(
