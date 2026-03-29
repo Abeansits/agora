@@ -147,7 +147,19 @@ pub fn run_forum(forum_config: &ForumConfig, forum_path: &Path) -> Result<()> {
         _ => eprintln!("\n=== Max rounds ({}) reached ===", effective_max),
     }
 
-    write_final_output(forum_config, forum_path, &prior_rounds, &final_result)?;
+    // Hollow consensus detection: check if claims contradict the convergence score
+    let hollow_warning = detect_hollow_consensus(&final_result, &prior_rounds);
+    if let Some(ref warning) = hollow_warning {
+        eprintln!("  {}", warning);
+    }
+
+    write_final_output(
+        forum_config,
+        forum_path,
+        &prior_rounds,
+        &final_result,
+        hollow_warning.as_deref(),
+    )?;
     Ok(())
 }
 
@@ -411,18 +423,64 @@ fn assign_cross_exam(participants: &[String]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Check for hollow consensus: high convergence score but contested claims in claims.toml.
+/// Returns a warning string if detected.
+fn detect_hollow_consensus(
+    result: &ConvergenceResult,
+    rounds: &[RoundData],
+) -> Option<String> {
+    let score = match result {
+        ConvergenceResult::Converged { score, .. } => *score,
+        _ => return None, // only check when judge says "converged"
+    };
+
+    let claims_text = rounds.last().and_then(|r| r.claims.as_ref())?;
+
+    // Count "oppose" stances in claims — simple text matching on the generated TOML
+    let oppose_count = claims_text.matches("oppose").count();
+    let total_stances = claims_text.matches("support").count()
+        + oppose_count
+        + claims_text.matches("neutral").count();
+
+    if total_stances == 0 {
+        return None;
+    }
+
+    let oppose_ratio = oppose_count as f32 / total_stances as f32;
+
+    // Hollow consensus: score >= 7 but >25% of stances are "oppose"
+    if score >= 7.0 && oppose_ratio > 0.25 {
+        Some(format!(
+            "> **Hollow consensus detected.** Convergence score is {:.1} but \
+             {}/{} claim stances are \"oppose\" ({:.0}%). \
+             Positions may be superficially agreeing while substantive disagreements remain.",
+            score,
+            oppose_count,
+            total_stances,
+            oppose_ratio * 100.0,
+        ))
+    } else {
+        None
+    }
+}
+
 fn write_final_output(
     config: &ForumConfig,
     forum_path: &Path,
     rounds: &[RoundData],
     convergence_result: &ConvergenceResult,
+    hollow_warning: Option<&str>,
 ) -> Result<()> {
     let final_dir = substrate::create_final_dir(forum_path)?;
 
-    // Final synthesis — use last round's or the best available
+    // Final synthesis — use last round's, prepend hollow consensus warning if detected
     if let Some(last) = rounds.last() {
         if let Some(ref synth) = last.synthesis {
-            substrate::write_atomic(&final_dir.join("synthesis.md"), synth)?;
+            let final_synth = match hollow_warning {
+                Some(warning) => format!("{}\n\n{}", warning, synth),
+                None => synth.clone(),
+            };
+            substrate::write_atomic(&final_dir.join("synthesis.md"), &final_synth)?;
         }
         if let Some(ref claims) = last.claims {
             substrate::write_atomic_toml(&final_dir.join("claims.toml"), claims)?;
