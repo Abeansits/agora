@@ -76,6 +76,9 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
         ));
     }
 
+    // Build position shift chart from alignment.toml files
+    let chart_html = build_position_chart(forum_path, total_rounds, &config.participants.names);
+
     // Final outputs
     let final_synthesis = read_optional(&final_dir.join("synthesis.md"));
     let final_dissent = read_optional(&final_dir.join("dissent.md"));
@@ -184,6 +187,8 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
   {rounds_html}
 </section>
 
+{chart_html}
+
 <section class="final-output">
   <div class="final-section synthesis-final">
     <h2>Final Synthesis</h2>
@@ -222,6 +227,7 @@ document.querySelectorAll('.md-render').forEach(el => {{
         score = score,
         status = status,
         rounds_html = rounds_html,
+        chart_html = chart_html,
         final_synthesis = escape_html_attr(&final_synthesis),
         dissent_section = dissent_section,
         claims_section = claims_section,
@@ -231,6 +237,158 @@ document.querySelectorAll('.md-render').forEach(el => {{
 
 fn read_optional(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_default()
+}
+
+/// Build an inline SVG position shift chart from alignment.toml files
+fn build_position_chart(forum_path: &Path, total_rounds: u32, participants: &[String]) -> String {
+    // Collect alignment scores per round per participant
+    let mut data: Vec<std::collections::HashMap<String, f32>> = Vec::new();
+    let mut has_data = false;
+
+    for r in 1..=total_rounds {
+        let alignment_path = forum_path.join(format!("round-{}", r)).join("alignment.toml");
+        let mut round_scores = std::collections::HashMap::new();
+        if let Ok(content) = std::fs::read_to_string(&alignment_path) {
+            for line in content.lines() {
+                let line = line.trim();
+                if line.starts_with('[') || line.starts_with("round") {
+                    continue;
+                }
+                if let Some((name, val)) = line.split_once('=') {
+                    if let Ok(score) = val.trim().parse::<f32>() {
+                        round_scores.insert(name.trim().to_string(), score);
+                        has_data = true;
+                    }
+                }
+            }
+        }
+        data.push(round_scores);
+    }
+
+    if !has_data || data.is_empty() {
+        return String::new();
+    }
+
+    // Chart dimensions
+    let w = 600.0_f32;
+    let h = 280.0_f32;
+    let pad_l = 45.0_f32;
+    let pad_r = 20.0_f32;
+    let pad_t = 20.0_f32;
+    let pad_b = 40.0_f32;
+    let chart_w = w - pad_l - pad_r;
+    let chart_h = h - pad_t - pad_b;
+
+    let colors = ["#58a6ff", "#4ade80", "#facc15", "#f87171", "#c084fc", "#fb923c"];
+
+    let mut svg = format!(
+        r#"<svg viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:{w}px">"#,
+        w = w, h = h,
+    );
+
+    // Background
+    svg.push_str(&format!(
+        r##"<rect width="{}" height="{}" fill="#161b22" rx="12"/>"##, w, h
+    ));
+
+    // Grid lines and Y labels
+    for i in 0..=10 {
+        let y = pad_t + chart_h - (i as f32 / 10.0) * chart_h;
+        let opacity = if i % 5 == 0 { "0.3" } else { "0.1" };
+        svg.push_str(&format!(
+            r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="#30363d" stroke-opacity="{}"/>"##,
+            pad_l, y, w - pad_r, y, opacity
+        ));
+        if i % 5 == 0 {
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="#8b949e" font-size="11" text-anchor="end" dominant-baseline="middle">{}</text>"##,
+                pad_l - 8.0, y, i
+            ));
+        }
+    }
+
+    // X labels (round numbers)
+    let num_points = data.len();
+    for (i, _) in data.iter().enumerate() {
+        let x = if num_points == 1 {
+            pad_l + chart_w / 2.0
+        } else {
+            pad_l + (i as f32 / (num_points - 1) as f32) * chart_w
+        };
+        svg.push_str(&format!(
+            r##"<text x="{}" y="{}" fill="#8b949e" font-size="11" text-anchor="middle">R{}</text>"##,
+            x, h - 10.0, i + 1
+        ));
+    }
+
+    // Lines + dots per participant
+    for (pi, name) in participants.iter().enumerate() {
+        let color = colors[pi % colors.len()];
+        let mut points: Vec<(f32, f32)> = Vec::new();
+
+        for (ri, round_scores) in data.iter().enumerate() {
+            if let Some(&score) = round_scores.get(name) {
+                let x = if num_points == 1 {
+                    pad_l + chart_w / 2.0
+                } else {
+                    pad_l + (ri as f32 / (num_points - 1) as f32) * chart_w
+                };
+                let y = pad_t + chart_h - (score / 10.0) * chart_h;
+                points.push((x, y));
+            }
+        }
+
+        // Draw line
+        if points.len() > 1 {
+            let path: String = points
+                .iter()
+                .enumerate()
+                .map(|(i, (x, y))| {
+                    if i == 0 { format!("M{},{}", x, y) } else { format!("L{},{}", x, y) }
+                })
+                .collect();
+            svg.push_str(&format!(
+                r##"<path d="{}" fill="none" stroke="{}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>"##,
+                path, color
+            ));
+        }
+
+        // Draw dots
+        for (x, y) in &points {
+            svg.push_str(&format!(
+                r##"<circle cx="{}" cy="{}" r="4" fill="{}" stroke="#161b22" stroke-width="2"/>"##,
+                x, y, color
+            ));
+        }
+    }
+
+    svg.push_str("</svg>");
+
+    // Legend
+    let legend: String = participants
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let color = colors[i % colors.len()];
+            format!(
+                r#"<span style="display:inline-flex;align-items:center;gap:6px;margin-right:16px"><span style="width:12px;height:12px;border-radius:50%;background:{}"></span>{}</span>"#,
+                color, escape_html_attr(name)
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<section class="chart-section">
+  <h2>Position Shift</h2>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px">
+    {}
+    <div style="margin-top:12px;font-size:13px;color:var(--text-dim)">{}</div>
+    <div style="margin-top:4px;font-size:11px;color:var(--text-dim)">Alignment with synthesis per round (1-10)</div>
+  </div>
+</section>
+"#,
+        svg, legend
+    )
 }
 
 /// Escape for embedding in HTML textarea content or attributes.

@@ -5,6 +5,66 @@ use anyhow::Result;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
 
+/// Per-participant alignment scores for a round
+pub type AlignmentScores = HashMap<String, f32>;
+
+/// Score each participant's alignment with the synthesis (1-10).
+/// Used for the position shift chart in HTML reports.
+pub fn evaluate_alignment(
+    convergence_config: &ConvergenceSection,
+    synthesis: &str,
+    responses: &HashMap<String, String>,
+) -> Result<AlignmentScores> {
+    let model = config::resolve_model(&convergence_config.judge_model);
+
+    let mut prompt = format!(
+        "You are scoring how well each participant's position aligns with the group synthesis.\n\n\
+         ## Synthesis\n{}\n\n\
+         ## Participant Responses\n",
+        synthesis
+    );
+    let mut names: Vec<&String> = responses.keys().collect();
+    names.sort();
+    for name in &names {
+        prompt.push_str(&format!("\n### {}\n{}\n", name, responses[*name]));
+    }
+    prompt.push_str(
+        "\n---\n\n\
+         Score each participant's alignment with the synthesis on a 1-10 scale.\n\
+         1 = completely divergent, 10 = fully aligned.\n\n\
+         Respond in EXACTLY this format (one per line):\n\
+         ALIGNMENT: participant_name=score participant_name=score ...\n",
+    );
+
+    let output = substrate::invoke_model(model, &prompt)?;
+    parse_alignment_scores(&output, &names)
+}
+
+fn parse_alignment_scores(
+    output: &str,
+    expected: &[&String],
+) -> Result<AlignmentScores> {
+    let mut scores = AlignmentScores::new();
+    let line = output
+        .lines()
+        .find(|l| l.trim().starts_with("ALIGNMENT:"))
+        .unwrap_or("");
+
+    for token in line.split_whitespace() {
+        if let Some((name, val)) = token.split_once('=') {
+            if let Ok(score) = val.parse::<f32>() {
+                scores.insert(name.to_string(), score);
+            }
+        }
+    }
+
+    // Fill missing with 5.0
+    for name in expected {
+        scores.entry(name.to_string()).or_insert(5.0);
+    }
+    Ok(scores)
+}
+
 /// Evaluate convergence of participant responses using the configured policy
 pub fn evaluate(
     convergence_config: &ConvergenceSection,

@@ -93,6 +93,26 @@ pub fn run_forum(forum_config: &ForumConfig, forum_path: &Path) -> Result<()> {
                 forum_config.convergence.threshold,
             )?;
 
+            // Score per-participant alignment for position shift tracking
+            if let Some(ref synth) = prior_rounds.last().and_then(|r| r.synthesis.clone()) {
+                if let Ok(alignment) = convergence::evaluate_alignment(
+                    &forum_config.convergence,
+                    &synth,
+                    &responses,
+                ) {
+                    let alignment_toml: String = alignment
+                        .iter()
+                        .map(|(k, v)| format!("{} = {:.1}", k, v))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let content = format!("[alignment]\nround = {}\n{}\n", round_num, alignment_toml);
+                    substrate::write_atomic_toml(
+                        &round_dir.join("alignment.toml"),
+                        &content,
+                    )?;
+                }
+            }
+
             match &result {
                 ConvergenceResult::Converged { score, summary } => {
                     eprintln!("  CONVERGED (score: {:.1}): {}", score, summary);
