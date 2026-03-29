@@ -2,6 +2,8 @@
 
 A multi-agent deliberation tool where any LLM, CLI tool, or human can participate in structured, multi-turn discussions using the filesystem as a shared medium. Ting orchestrates a modified Delphi protocol — independent proposals, adversarial cross-examination, informed revision — then synthesizes agreement and preserves dissent as a first-class output.
 
+> **Why "Ting"?** From Old Swedish *ting* — an open-air assembly where free people gathered to settle disputes, make laws, and render judgments. The tradition dates back over a thousand years across Scandinavia. Fittingly, Ting named itself: three AI models deliberated on what this tool should be called, and *ting* is what they converged on.
+
 ## Who This Is For
 
 **Ting is for you if:**
@@ -129,7 +131,14 @@ Creates a forum and runs the full deliberation (blocking). The `--context` flag 
 
 ### `ting status <forum-id>`
 
-Shows current round, participant responses received/missing, and completion state.
+Shows round-by-round progress with who has/hasn't responded:
+
+```bash
+ting status <forum-id>
+
+# View a specific round's full responses
+ting status <forum-id> --round 2
+```
 
 ### `ting list`
 
@@ -150,17 +159,6 @@ ting respond <forum-id>
 
 # Explicit: specify round, name, and file
 ting respond <forum-id> -r 2 -n human -f my-response.md
-```
-
-### `ting status <forum-id>`
-
-Shows round-by-round progress with who has/hasn't responded:
-
-```bash
-ting status <forum-id>
-
-# View a specific round's responses
-ting status <forum-id> --round 2
 ```
 
 ## Participant Types
