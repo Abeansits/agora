@@ -58,8 +58,8 @@ pub fn run_eval(cfg: &EvalConfig) -> Result<EvalResult> {
     let eval_dir = evals_dir().join(&eval_id);
     std::fs::create_dir_all(&eval_dir)?;
 
-    // Write eval meta.toml
-    let meta = format!(
+    // Write eval meta.toml with resolved model IDs
+    let mut meta = format!(
         "[eval]\n\
          id = \"{eval_id}\"\n\
          topic = \"{topic}\"\n\
@@ -74,6 +74,22 @@ pub fn run_eval(cfg: &EvalConfig) -> Result<EvalResult> {
         judge = cfg.judge_preset,
         created = chrono::Utc::now().to_rfc3339(),
     );
+    meta.push_str("\n[models]\n");
+    meta.push_str(&format!(
+        "baseline = \"{}\"\n",
+        config::resolve_model_id(&cfg.baseline_preset)
+    ));
+    meta.push_str(&format!(
+        "judge = \"{}\"\n",
+        config::resolve_model_id(&cfg.judge_preset)
+    ));
+    for p in &cfg.forum_presets {
+        meta.push_str(&format!(
+            "{} = \"{}\"\n",
+            p,
+            config::resolve_model_id(p)
+        ));
+    }
     std::fs::write(eval_dir.join("meta.toml"), &meta)?;
 
     // Step 1: Get baseline response
@@ -107,7 +123,7 @@ pub fn run_eval(cfg: &EvalConfig) -> Result<EvalResult> {
 
     // Write outputs
     substrate::write_atomic(&eval_dir.join("comparison.md"), &comparison)?;
-    write_scores_toml(&eval_dir.join("scores.toml"), &scores, baseline_first)?;
+    write_scores_toml(&eval_dir.join("scores.toml"), &scores, baseline_first, cfg)?;
 
     eprintln!("\n=== Eval complete: {} ===", eval_dir.display());
     eprintln!(
@@ -379,11 +395,15 @@ fn build_comparison_report(
     )
 }
 
-fn write_scores_toml(path: &Path, scores: &Scores, baseline_first: bool) -> Result<()> {
+fn write_scores_toml(path: &Path, scores: &Scores, baseline_first: bool, cfg: &EvalConfig) -> Result<()> {
     let content = format!(
         "[assignment]\n\
          response_a = \"{a}\"\n\
          response_b = \"{b}\"\n\n\
+         [models]\n\
+         baseline = \"{bmodel}\"\n\
+         judge = \"{jmodel}\"\n\
+         forum = [{fmodels}]\n\n\
          [baseline]\n\
          completeness = {bc:.1}\n\
          counterarguments = {bca:.1}\n\
@@ -400,6 +420,11 @@ fn write_scores_toml(path: &Path, scores: &Scores, baseline_first: bool) -> Resu
          average = {favg:.1}\n",
         a = if baseline_first { "baseline" } else { "forum" },
         b = if baseline_first { "forum" } else { "baseline" },
+        bmodel = config::resolve_model_id(&cfg.baseline_preset),
+        jmodel = config::resolve_model_id(&cfg.judge_preset),
+        fmodels = cfg.forum_presets.iter()
+            .map(|p| format!("\"{}\"", config::resolve_model_id(p)))
+            .collect::<Vec<_>>().join(", "),
         bc = scores.baseline.completeness,
         bca = scores.baseline.counterarguments,
         ba = scores.baseline.actionability,

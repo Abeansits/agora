@@ -264,6 +264,29 @@ fn cmd_new(
     let forum_path = substrate::create_forum_dir(&id)?;
     config::save(&forum_config, &forum_path.join("meta.toml"))?;
 
+    // Append [models] section with resolved model IDs
+    {
+        let meta_path = forum_path.join("meta.toml");
+        let mut meta = std::fs::read_to_string(&meta_path)?;
+        meta.push_str("\n[models]\n");
+        meta.push_str(&format!(
+            "synthesis = \"{}\"\n",
+            config::resolve_model(&forum_config.synthesis.model)
+        ));
+        meta.push_str(&format!(
+            "convergence_judge = \"{}\"\n",
+            config::resolve_model(&forum_config.convergence.judge_model)
+        ));
+        for name in &forum_config.participants.names {
+            meta.push_str(&format!(
+                "{} = \"{}\"\n",
+                name,
+                config::resolve_model_id(name)
+            ));
+        }
+        std::fs::write(&meta_path, meta)?;
+    }
+
     print_banner();
     eprintln!();
     eprintln!("  Forum  {}", id);

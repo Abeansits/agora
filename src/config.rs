@@ -314,6 +314,44 @@ pub fn resolve_model(model: &str) -> &str {
     }
 }
 
+/// Best-effort extraction of model ID from a preset name or command string.
+/// Tries: known presets → --model flag → "ollama run MODEL" → falls back to command string.
+pub fn resolve_model_id(preset_name: &str) -> String {
+    // Known model IDs for built-in presets
+    match preset_name {
+        "claude" => return "claude-opus-4-6".to_string(),
+        "codex" => return "gpt-5.3-codex".to_string(),
+        "gemini" => return "gemini-2.5-pro".to_string(),
+        "opencode" => return "kimi-k2.5".to_string(),
+        _ => {}
+    }
+
+    // Try to extract from the command string
+    if let Some((_, cmd)) = preset_command(preset_name) {
+        // --model MODEL
+        if let Some(model) = extract_flag_value(&cmd, "--model") {
+            return model;
+        }
+        // ollama run MODEL
+        if let Some(pos) = cmd.find("ollama run ") {
+            let rest = &cmd[pos + 11..];
+            let model = rest.split_whitespace().next().unwrap_or("unknown");
+            return model.to_string();
+        }
+        // Fall back to the full command
+        return cmd;
+    }
+
+    preset_name.to_string()
+}
+
+fn extract_flag_value(cmd: &str, flag: &str) -> Option<String> {
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    parts.iter().position(|&p| p == flag)
+        .and_then(|i| parts.get(i + 1))
+        .map(|v| v.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,6 +465,25 @@ type = "manual"
         assert_eq!(resolve_model("claude-sonnet"), "claude-sonnet-4-6");
         assert_eq!(resolve_model("claude-opus"), "claude-opus-4-6");
         assert_eq!(resolve_model("gpt-4o"), "gpt-4o"); // passthrough
+    }
+
+    #[test]
+    fn test_resolve_model_id_builtins() {
+        assert_eq!(resolve_model_id("claude"), "claude-opus-4-6");
+        assert_eq!(resolve_model_id("codex"), "gpt-5.3-codex");
+        assert_eq!(resolve_model_id("gemini"), "gemini-2.5-pro");
+        assert_eq!(resolve_model_id("opencode"), "kimi-k2.5");
+    }
+
+    #[test]
+    fn test_resolve_model_id_ollama() {
+        assert_eq!(resolve_model_id("ollama"), "llama3");
+    }
+
+    #[test]
+    fn test_resolve_model_id_unknown() {
+        // Unknown preset falls back to the name itself
+        assert_eq!(resolve_model_id("unknownpreset"), "unknownpreset");
     }
 
     #[test]
