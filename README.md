@@ -252,12 +252,12 @@ participant_timeout = "2m"
 
 [convergence]
 policy = "llm-judge"
-judge_model = "claude-sonnet"
+judge_model = "claude-opus"
 threshold = 7
 min_rounds = 2
 
 [synthesis]
-model = "claude-sonnet"
+model = "claude-opus"
 ```
 
 ## Directory Structure

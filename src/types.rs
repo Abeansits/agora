@@ -104,7 +104,7 @@ fn default_policy() -> String {
     "llm-judge".into()
 }
 fn default_judge_model() -> String {
-    "claude-sonnet".into()
+    "claude-opus".into()
 }
 fn default_threshold() -> u32 {
     7
@@ -131,7 +131,7 @@ impl Default for SynthesisSection {
 }
 
 fn default_synthesis_model() -> String {
-    "claude-sonnet".into()
+    "claude-opus".into()
 }
 fn default_max_prior_context() -> u32 {
     4000

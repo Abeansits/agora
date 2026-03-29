@@ -118,7 +118,7 @@ fn builtin_preset(name: &str) -> Option<(&'static str, &'static str)> {
     match name {
         "codex" => Some(("command", "codex exec --full-auto -")),
         "gemini" => Some(("command", "cat {prompt_file} | gemini -p ' '")),
-        "claude" => Some(("command", "cat {prompt_file} | claude -p -")),
+        "claude" => Some(("command", "cat {prompt_file} | claude -p - --model claude-opus-4-6")),
         "opencode" => Some(("command", "opencode run")),
         "ollama" => Some(("command", "cat {prompt_file} | ollama run llama3")),
         _ => None,
@@ -419,7 +419,7 @@ type = "manual"
         // Defaults
         assert_eq!(config.timing.round_timeout, "5m");
         assert_eq!(config.convergence.threshold, 7);
-        assert_eq!(config.synthesis.model, "claude-sonnet");
+        assert_eq!(config.synthesis.model, "claude-opus");
     }
 
     #[test]
