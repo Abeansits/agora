@@ -87,6 +87,7 @@ pub fn read_all_responses(
 
 /// Watch a directory for expected participant response files using notify.
 /// Returns collected responses when all are present or timeout is reached.
+/// Shows a live countdown on TTY and word count per response.
 pub fn watch_for_responses(
     round_dir: &Path,
     expected: &[String],
@@ -94,6 +95,7 @@ pub fn watch_for_responses(
 ) -> Result<HashMap<String, String>> {
     let mut responses = HashMap::new();
     let start = Instant::now();
+    let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
 
     // Start watcher BEFORE scanning for existing files to avoid race condition
     // (file could arrive between scan and watch registration)
@@ -109,6 +111,8 @@ pub fn watch_for_responses(
         let path = round_dir.join(format!("{}.md", name));
         if path.exists() {
             let content = read_file(&path)?;
+            let words = content.split_whitespace().count();
+            eprintln!("  \u{2713} {} responded ({} words)", name, words);
             responses.insert(name.clone(), content);
         }
     }
@@ -117,14 +121,22 @@ pub fn watch_for_responses(
         return Ok(responses);
     }
 
+    // Print initial countdown
+    print_countdown(is_tty, timeout.saturating_sub(start.elapsed()));
+
     loop {
         let elapsed = start.elapsed();
         if elapsed >= timeout {
+            if is_tty {
+                eprint!("\r\x1b[K"); // clear countdown line
+            }
             break;
         }
         let remaining = timeout - elapsed;
+        let poll = Duration::from_secs(15);
+        let wait_time = remaining.min(poll);
 
-        match rx.recv_timeout(remaining) {
+        match rx.recv_timeout(wait_time) {
             Ok(Ok(event)) => {
                 for path in &event.paths {
                     if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
@@ -140,7 +152,11 @@ pub fn watch_for_responses(
                                     if path.exists() {
                                         if let Ok(content) = read_file(path) {
                                             if !content.is_empty() {
-                                                eprintln!("  Received response from: {}", name);
+                                                if is_tty {
+                                                    eprint!("\r\x1b[K"); // clear countdown line
+                                                }
+                                                let words = content.split_whitespace().count();
+                                                eprintln!("  \u{2713} {} responded ({} words)", name, words);
                                                 responses.insert(name.to_string(), content);
                                                 read_ok = true;
                                                 break;
@@ -155,9 +171,19 @@ pub fn watch_for_responses(
                         }
                     }
                 }
+                // Refresh countdown if still waiting
+                if responses.len() < expected.len() {
+                    print_countdown(is_tty, timeout.saturating_sub(start.elapsed()));
+                }
             }
             Ok(Err(e)) => eprintln!("Watch error: {}", e),
-            Err(mpsc::RecvTimeoutError::Timeout) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Refresh countdown
+                let left = timeout.saturating_sub(start.elapsed());
+                if left > Duration::ZERO && responses.len() < expected.len() {
+                    print_countdown(is_tty, left);
+                }
+            }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
 
@@ -167,6 +193,15 @@ pub fn watch_for_responses(
     }
 
     Ok(responses)
+}
+
+fn print_countdown(is_tty: bool, remaining: Duration) {
+    if !is_tty || remaining.is_zero() {
+        return;
+    }
+    let mins = remaining.as_secs() / 60;
+    let secs = remaining.as_secs() % 60;
+    eprint!("\r  Watching for your file... (timeout in {}m{:02}s)  ", mins, secs);
 }
 
 /// List all forum IDs and their directory paths

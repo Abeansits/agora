@@ -57,7 +57,7 @@ ting result --html --publish <forum-id>
      ██║   ██║██║╚██╗██║██║   ██║
      ██║   ██║██║ ╚████║╚██████╔╝
      ╚═╝   ╚═╝╚═╝  ╚═══╝ ╚═════╝
-  v0.2.0  Structured deliberation between AI models
+  v0.3.0  Structured deliberation between AI models
 
   Forum  ting-2026-03-27-a1b2c3d4
   Topic  Should we use Pipecat or Vapi for voice?
@@ -141,10 +141,26 @@ Prints the final synthesis and dissent to terminal. Add `--html` to generate a s
 
 ### `ting respond <forum-id>`
 
-For human participants — submit a response from another terminal while the forum is running:
+For human participants — submit a response from another terminal while the forum is running.
+Round, participant name, and input method are all auto-detected:
 
 ```bash
-ting respond <forum-id> -r 1 -n human -f my-response.md
+# Simplest: auto-detects round + participant, opens $EDITOR
+ting respond <forum-id>
+
+# Explicit: specify round, name, and file
+ting respond <forum-id> -r 2 -n human -f my-response.md
+```
+
+### `ting status <forum-id>`
+
+Shows round-by-round progress with who has/hasn't responded:
+
+```bash
+ting status <forum-id>
+
+# View a specific round's responses
+ting status <forum-id> --round 2
 ```
 
 ## Participant Types
@@ -205,9 +221,16 @@ ting new "topic" --participant human --participant codex
 
 When the fire keeper needs a human response, it prints instructions:
 ```
-Waiting for human. Submit your response:
-  Option A: Write to ~/.ting/sessions/<id>/round-1/human.md
-  Option B: ting respond <id> -r 1 -n human -f response.md
+  ✓ claude responded (1,203 words)
+  ✓ codex responded (987 words)
+
+  ⏳ Waiting for YOU (human)
+
+    Read others' responses:  ting status <id> --round 1
+    Write your response:     ting respond <id>
+    Or edit directly:        ~/.ting/sessions/<id>/round-1/human.md
+
+  Watching for your file... (timeout in 4m30s)
 ```
 
 ### Other Models

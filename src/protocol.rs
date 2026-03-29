@@ -228,10 +228,16 @@ fn invoke_participants(
     // Parse participant timeout
     let participant_timeout = config::parse_duration(&config.timing.participant_timeout)?;
 
-    // Invoke command participants concurrently via threads
-    let handles: Vec<_> = command_participants
-        .iter()
-        .map(|name| {
+    // Invoke command participants concurrently, show progress as they complete
+    if !command_participants.is_empty() {
+        for name in &command_participants {
+            eprintln!("  Invoking: {}", name);
+        }
+
+        let (tx, rx) = std::sync::mpsc::channel::<(String, Result<String>)>();
+
+        for name in &command_participants {
+            let tx = tx.clone();
             let name = name.clone();
             let cmd_template = config.participants.configs[&name]
                 .command
@@ -241,30 +247,29 @@ fn invoke_participants(
             let round_dir = round_dir.clone();
             let timeout = participant_timeout;
 
-            std::thread::spawn(move || -> Result<(String, String)> {
-                eprintln!("  Invoking participant: {}", name);
-                let response =
-                    substrate::invoke_command(&cmd_template, &prompt, timeout)?;
-                substrate::write_atomic(
-                    &round_dir.join(format!("{}.md", name)),
-                    &response,
-                )?;
-                Ok((name, response))
-            })
-        })
-        .collect();
+            std::thread::spawn(move || {
+                let result = substrate::invoke_command(&cmd_template, &prompt, timeout);
+                if let Ok(ref response) = result {
+                    let _ = substrate::write_atomic(
+                        &round_dir.join(format!("{}.md", name)),
+                        response,
+                    );
+                }
+                tx.send((name, result)).ok();
+            });
+        }
+        drop(tx);
 
-    // Collect command participant results
-    for handle in handles {
-        match handle.join() {
-            Ok(Ok((name, response))) => {
-                responses.insert(name, response);
-            }
-            Ok(Err(e)) => {
-                eprintln!("  Warning: participant failed: {}", e);
-            }
-            Err(_) => {
-                eprintln!("  Warning: participant thread panicked");
+        for (name, result) in rx {
+            match result {
+                Ok(response) => {
+                    let words = response.split_whitespace().count();
+                    eprintln!("  \u{2713} {} responded ({} words)", name, words);
+                    responses.insert(name, response);
+                }
+                Err(e) => {
+                    eprintln!("  \u{2717} {} failed: {}", name, e);
+                }
             }
         }
     }
@@ -272,29 +277,37 @@ fn invoke_participants(
     // Wait for manual participants via filesystem watching
     if !manual_participants.is_empty() {
         let forum_id = &config.forum.id;
+        let timeout = config::parse_duration(&config.timing.round_timeout)?;
+
         eprintln!();
         for name in &manual_participants {
-            eprintln!("  Waiting for {name}. Submit your response:");
-            eprintln!("    Option A: Write to {}/round-{}/{name}.md", forum_path.display(), round);
-            eprintln!("    Option B: ting respond {forum_id} -r {round} -n {name} -f response.md");
+            eprintln!("  \u{23f3} Waiting for YOU ({})", name);
         }
         eprintln!();
-        let timeout = config::parse_duration(&config.timing.round_timeout)?;
-        eprintln!("  Timeout: {:?}", timeout);
+        eprintln!("    Read others' responses:  ting status {} --round {}", forum_id, round);
+        eprintln!("    Write your response:     ting respond {}", forum_id);
+        for name in &manual_participants {
+            eprintln!(
+                "    Or edit directly:        {}/round-{}/{}.md",
+                forum_path.display(),
+                round,
+                name,
+            );
+        }
+        eprintln!();
+
         let manual_responses =
             substrate::watch_for_responses(&round_dir, &manual_participants, timeout)?;
 
-        let received: Vec<&String> = manual_responses.keys().collect();
         let missing: Vec<&String> = manual_participants
             .iter()
             .filter(|n| !manual_responses.contains_key(*n))
             .collect();
 
         if !missing.is_empty() {
-            eprintln!("  Timed out waiting for: {:?}", missing);
-        }
-        if !received.is_empty() {
-            eprintln!("  Received from: {:?}", received);
+            for name in &missing {
+                eprintln!("  \u{2717} {} timed out", name);
+            }
         }
 
         responses.extend(manual_responses);
