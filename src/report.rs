@@ -21,20 +21,31 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
         // Read prompt
         let prompt = read_optional(&round_dir.join("prompt.md"));
 
-        // Read participant responses
+        // Read participant responses (#2: handle missing/empty as timeout/failure)
         let mut responses_html = String::new();
         for (i, name) in config.participants.names.iter().enumerate() {
             let response = read_optional(&round_dir.join(format!("{}.md", name)));
             let checked = if i == 0 { " checked" } else { "" };
+            let content_html = if response.trim().is_empty() {
+                format!(
+                    r#"<div class="participant-notice">&#9203; {} &mdash; No response received (timed out or failed)</div>"#,
+                    escape_html_attr(name)
+                )
+            } else {
+                format!(
+                    r#"<div class="md-render"><textarea class="md-src">{}</textarea></div>"#,
+                    escape_html_attr(&response)
+                )
+            };
             responses_html.push_str(&format!(
                 r#"<input type="radio" name="round{r}-tab" id="round{r}-{name}" class="tab-input"{checked}>
 <label for="round{r}-{name}" class="tab-label">{name}</label>
-<div class="tab-content"><div class="md-render"><textarea class="md-src">{response_escaped}</textarea></div></div>
+<div class="tab-content">{content_html}</div>
 "#,
                 r = r,
                 name = name,
                 checked = checked,
-                response_escaped = escape_html_attr(&response),
+                content_html = content_html,
             ));
         }
 
@@ -79,6 +90,36 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
     // Build position shift chart from alignment.toml files
     let chart_html = build_position_chart(forum_path, total_rounds, &config.participants.names);
 
+    // #4: Context section (collapsible, truncated if long)
+    let context_section = match &config.forum.context {
+        Some(ctx) if !ctx.is_empty() => {
+            let lines: Vec<&str> = ctx.lines().collect();
+            let (display, has_more) = if lines.len() > 200 {
+                (lines[..200].join("\n"), true)
+            } else {
+                (ctx.clone(), false)
+            };
+            let more_html = if has_more {
+                format!(
+                    r#"<details class="context-more"><summary>Show full context ({} lines)</summary><pre class="claims-pre">{}</pre></details>"#,
+                    lines.len(),
+                    escape_html_attr(ctx),
+                )
+            } else {
+                String::new()
+            };
+            format!(
+                r#"<details class="section-fold">
+<summary><h2>Context / Input</h2></summary>
+<div class="final-section"><pre class="claims-pre">{display}</pre>{more_html}</div>
+</details>"#,
+                display = escape_html_attr(&display),
+                more_html = more_html,
+            )
+        }
+        _ => String::new(),
+    };
+
     // Final outputs
     let final_synthesis = read_optional(&final_dir.join("synthesis.md"));
     let final_dissent = read_optional(&final_dir.join("dissent.md"));
@@ -105,17 +146,44 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
         "#f87171"
     };
 
+    // #3: Read model IDs from meta.toml [models] section
+    let meta_toml = read_optional(&forum_path.join("meta.toml"));
+    let model_ids: std::collections::HashMap<String, String> = {
+        let mut map = std::collections::HashMap::new();
+        let mut in_models = false;
+        for line in meta_toml.lines() {
+            if line.trim() == "[models]" {
+                in_models = true;
+                continue;
+            }
+            if line.trim().starts_with('[') {
+                in_models = false;
+            }
+            if in_models {
+                if let Some((k, v)) = line.split_once('=') {
+                    map.insert(
+                        k.trim().to_string(),
+                        v.trim().trim_matches('"').to_string(),
+                    );
+                }
+            }
+        }
+        map
+    };
+
     let participants_list = config
         .participants
         .names
         .iter()
         .map(|n| {
-            let ptype = config
-                .participants
-                .configs
-                .get(n)
-                .map_or("unknown", |c| &c.participant_type);
-            format!("<span class=\"participant-chip\">{} <small>({})</small></span>", n, ptype)
+            let model = model_ids
+                .get(n.as_str())
+                .map(|m| m.as_str())
+                .unwrap_or("unknown");
+            format!(
+                "<span class=\"participant-chip\">{} <small>({})</small></span>",
+                n, model
+            )
         })
         .collect::<Vec<_>>()
         .join(" ");
@@ -125,10 +193,12 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
 
     let dissent_section = if has_dissent {
         format!(
-            r#"<div class="final-section dissent-section">
-  <h2>Dissent</h2>
-  <div class="md-render"><textarea class="md-src">{}</textarea></div>
-</div>"#,
+            r#"<details class="section-fold">
+<summary><h2>Dissent</h2></summary>
+  <div class="final-section dissent-section">
+    <div class="md-render"><textarea class="md-src">{}</textarea></div>
+  </div>
+</details>"#,
             escape_html_attr(&final_dissent)
         )
     } else {
@@ -137,10 +207,12 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
 
     let claims_section = if !final_claims.is_empty() {
         format!(
-            r#"<div class="final-section">
-  <h2>Claims</h2>
-  <pre class="claims-pre">{}</pre>
-</div>"#,
+            r#"<details class="section-fold">
+<summary><h2>Claims</h2></summary>
+  <div class="final-section">
+    <pre class="claims-pre">{}</pre>
+  </div>
+</details>"#,
             escape_html_attr(&final_claims)
         )
     } else {
@@ -182,22 +254,24 @@ pub fn generate_html_report(config: &ForumConfig, forum_path: &Path) -> Result<S
   </div>
 </section>
 
-<section class="rounds-section">
-  <h2>Deliberation Rounds</h2>
+{context_section}
+
+<details class="section-fold" open>
+<summary><h2>Deliberation Rounds</h2></summary>
   {rounds_html}
-</section>
+</details>
 
 {chart_html}
 
-<section class="final-output">
+<details class="section-fold" open>
+<summary><h2>Final Synthesis</h2></summary>
   <div class="final-section synthesis-final">
-    <h2>Final Synthesis</h2>
     <div class="md-render"><textarea class="md-src">{final_synthesis}</textarea></div>
   </div>
+</details>
 
-  {dissent_section}
-  {claims_section}
-</section>
+{dissent_section}
+{claims_section}
 
 <footer>
   <span>Generated by Agora v0.1</span>
@@ -228,6 +302,7 @@ document.querySelectorAll('.md-render').forEach(el => {{
         status = status,
         rounds_html = rounds_html,
         chart_html = chart_html,
+        context_section = context_section,
         final_synthesis = escape_html_attr(&final_synthesis),
         dissent_section = dissent_section,
         claims_section = claims_section,
@@ -797,6 +872,28 @@ footer {
   font-size: 12px;
   color: var(--text-dim);
 }
+
+/* Collapsible sections */
+.section-fold { margin-bottom: 16px; }
+.section-fold > summary { cursor: pointer; list-style: none; user-select: none; }
+.section-fold > summary::-webkit-details-marker { display: none; }
+.section-fold > summary h2 { display: inline; }
+.section-fold > summary::before {
+  content: "\25B6"; font-size: 10px; color: var(--text-dim);
+  margin-right: 8px; transition: transform 0.2s; display: inline-block;
+}
+.section-fold[open] > summary::before { transform: rotate(90deg); }
+
+/* Participant timeout/failure notice */
+.participant-notice {
+  padding: 16px; color: var(--text-dim); font-size: 14px;
+  background: var(--surface-2); border-radius: 8px;
+  border: 1px dashed var(--border);
+}
+
+/* Context expander */
+.context-more { margin-top: 8px; }
+.context-more summary { color: var(--accent); cursor: pointer; font-size: 13px; }
 
 @media (max-width: 600px) {
   .container { padding: 20px 16px; }

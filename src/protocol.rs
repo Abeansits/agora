@@ -83,6 +83,27 @@ pub fn run_forum(forum_config: &ForumConfig, forum_path: &Path) -> Result<()> {
         };
         prior_rounds.push(round_data);
 
+        // Score per-participant alignment for position shift tracking (every round)
+        if let Some(ref synth) = prior_rounds.last().and_then(|r| r.synthesis.clone()) {
+            eprintln!("  Scoring alignment...");
+            if let Ok(alignment) = convergence::evaluate_alignment(
+                &forum_config.convergence,
+                &synth,
+                &responses,
+            ) {
+                let alignment_toml: String = alignment
+                    .iter()
+                    .map(|(k, v)| format!("{} = {:.1}", k, v))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let content = format!("[alignment]\nround = {}\n{}\n", round_num, alignment_toml);
+                substrate::write_atomic_toml(
+                    &round_dir.join("alignment.toml"),
+                    &content,
+                )?;
+            }
+        }
+
         // Convergence check (only after min_rounds)
         if round_num >= forum_config.convergence.min_rounds {
             eprintln!("  Evaluating convergence...");
@@ -92,26 +113,6 @@ pub fn run_forum(forum_config: &ForumConfig, forum_path: &Path) -> Result<()> {
                 &responses,
                 forum_config.convergence.threshold,
             )?;
-
-            // Score per-participant alignment for position shift tracking
-            if let Some(ref synth) = prior_rounds.last().and_then(|r| r.synthesis.clone()) {
-                if let Ok(alignment) = convergence::evaluate_alignment(
-                    &forum_config.convergence,
-                    &synth,
-                    &responses,
-                ) {
-                    let alignment_toml: String = alignment
-                        .iter()
-                        .map(|(k, v)| format!("{} = {:.1}", k, v))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    let content = format!("[alignment]\nround = {}\n{}\n", round_num, alignment_toml);
-                    substrate::write_atomic_toml(
-                        &round_dir.join("alignment.toml"),
-                        &content,
-                    )?;
-                }
-            }
 
             match &result {
                 ConvergenceResult::Converged { score, summary } => {
