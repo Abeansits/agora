@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "agora", version, about = "Multi-agent deliberation tool")]
+#[command(name = "ting", version, about = "Multi-agent deliberation tool")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -95,7 +95,7 @@ enum Commands {
         action: PresetAction,
     },
 
-    /// Evaluate: compare single-model baseline vs. Agora forum (blind judged)
+    /// Evaluate: compare single-model baseline vs. Ting forum (blind judged)
     Eval {
         /// The question or topic to evaluate
         topic: String,
@@ -236,9 +236,9 @@ fn cmd_new(
         None => None,
     };
 
-    // Generate forum ID: agora-YYYY-MM-DD-UUID8 (collision-safe)
+    // Generate forum ID: ting-YYYY-MM-DD-UUID8 (collision-safe)
     let id = format!(
-        "agora-{}-{}",
+        "ting-{}-{}",
         chrono::Utc::now().format("%Y-%m-%d"),
         &uuid::Uuid::new_v4().to_string()[..8],
     );
@@ -397,7 +397,7 @@ fn cmd_result(forum_id: &str, html: bool, publish: bool) -> Result<()> {
 
     if !final_dir.exists() {
         anyhow::bail!(
-            "Forum '{}' has not completed yet. Run: agora status {}",
+            "Forum '{}' has not completed yet. Run: ting status {}",
             forum_id,
             forum_id
         );
@@ -486,12 +486,12 @@ fn print_banner() {
     };
     eprint!("{}", accent);
     eprintln!(r"");
-    eprintln!(r"   █████╗  ██████╗  ██████╗ ██████╗  █████╗ ");
-    eprintln!(r"  ██╔══██╗██╔════╝ ██╔═══██╗██╔══██╗██╔══██╗");
-    eprintln!(r"  ███████║██║  ███╗██║   ██║██████╔╝███████║");
-    eprintln!(r"  ██╔══██║██║   ██║██║   ██║██╔══██╗██╔══██║");
-    eprintln!(r"  ██║  ██║╚██████╔╝╚██████╔╝██║  ██║██║  ██║");
-    eprintln!(r"  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝");
+    eprintln!(r"  ████████╗██╗███╗   ██╗ ██████╗ ");
+    eprintln!(r"  ╚══██╔══╝██║████╗  ██║██╔════╝ ");
+    eprintln!(r"     ██║   ██║██╔██╗ ██║██║  ███╗");
+    eprintln!(r"     ██║   ██║██║╚██╗██║██║   ██║");
+    eprintln!(r"     ██║   ██║██║ ╚████║╚██████╔╝");
+    eprintln!(r"     ╚═╝   ╚═╝╚═╝  ╚═══╝ ╚═════╝ ");
     eprint!("{}", reset);
     eprintln!(
         "  {}v{}  Structured deliberation between AI models{}",
@@ -611,7 +611,7 @@ fn cmd_preset_list() -> Result<()> {
 
 fn cmd_preset_remove(name: &str) -> Result<()> {
     let path = std::path::Path::new(&std::env::var("HOME").unwrap_or_default())
-        .join(".agora")
+        .join(".ting")
         .join("config.toml");
     if !path.exists() {
         anyhow::bail!("No custom presets configured");

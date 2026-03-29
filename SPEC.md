@@ -1,10 +1,10 @@
-# Agora — Multi-Agent Deliberation Tool
+# Ting — Multi-Agent Deliberation Tool
 
 A substrate-independent deliberation tool where any agent (LLM, CLI tool, or human) can participate in structured, multi-turn discussions using the filesystem as a shared medium.
 
 ## Why
 
-Single-model consultations (like midflight) improve quality. Multi-model, multi-turn deliberation improves it more — but nobody has built it without locking you into a framework. Agora's interface is the filesystem: read a file, write a file. That's it.
+Single-model consultations (like midflight) improve quality. Multi-model, multi-turn deliberation improves it more — but nobody has built it without locking you into a framework. Ting's interface is the filesystem: read a file, write a file. That's it.
 
 ## Core Concepts
 
@@ -16,7 +16,7 @@ Anything that can read and write files:
 - Humans (write markdown in your editor)
 - Shell scripts, Python scripts, any process
 
-Participants don't know they're in Agora. They see a prompt, they respond.
+Participants don't know they're in Ting. They see a prompt, they respond.
 
 ### Fire Keeper
 A standalone Rust binary that orchestrates the forum:
@@ -79,12 +79,12 @@ FINAL OUTPUT
 
 Pure Delphi (propose → revise) produces "polite agreement" with LLMs — they converge on shared biases, not truth. The cross-examination round forces adversarial thinking before revision, surfacing genuine disagreements.
 
-Validated empirically: two blind Codex consultations on Agora's own design produced 40% convergence, 30% partial, 30% genuine divergence. The divergences were the most valuable insights.
+Validated empirically: two blind Codex consultations on Ting's own design produced 40% convergence, 30% partial, 30% genuine divergence. The divergences were the most valuable insights.
 
 ## Directory Structure
 
 ```
-~/.agora/sessions/{forum-id}/
+~/.ting/sessions/{forum-id}/
   meta.toml                    # forum config
   round-1/
     prompt.md                  # fire keeper → participants
@@ -113,7 +113,7 @@ Validated empirically: two blind Codex consultations on Agora's own design produ
 
 ```toml
 [forum]
-id = "agora-2026-03-27-001"
+id = "ting-2026-03-27-001"
 topic = "Should we use Pipecat or Vapi for voice?"
 created = "2026-03-27T00:30:00Z"
 max_rounds = 5
@@ -236,26 +236,26 @@ When `quorum > 0`, fire keeper proceeds when N participants have responded, with
 
 ```bash
 # Create and start a forum
-agora new "Should we use Pipecat or Vapi?" \
+ting new "Should we use Pipecat or Vapi?" \
   --participant v0:command:"agent-deck session send conductor-ops '{prompt}' --wait -q" \
   --participant codex:command:"codex exec --full-auto -m '{prompt}'" \
   --participant human:manual \
   --timeout 5m
 
 # Check status
-agora status {forum-id}
+ting status {forum-id}
 
 # List all forums
-agora list
+ting list
 
 # Read final synthesis
-agora result {forum-id}
+ting result {forum-id}
 
 # Resume / add rounds to existing forum
-agora continue {forum-id} --rounds 2
+ting continue {forum-id} --rounds 2
 
 # Manually submit a response (for human participants)
-agora respond {forum-id} --round 2 --participant human --file response.md
+ting respond {forum-id} --round 2 --participant human --file response.md
 ```
 
 ## v0.1 Scope
@@ -275,6 +275,8 @@ agora respond {forum-id} --round 2 --participant human --file response.md
 
 ### Out of Scope (v0.2+)
 - **Divergence protocol** — "creativity mode" where the goal is breadth, not consensus. Inspired by De Bono's Six Thinking Hats. Fire keeper assigns lenses (risk, optimism, wild ideas, facts, etc.) to participants. No convergence check — output is the spread of perspectives, not agreement. Useful for brainstorming, creative work, retrospectives.
+- **Additional CLI presets** — Cursor (`cursor`), Pi (`pi`), and others as they become available. Presets are cheap to add.
+- **"Bring your own model" guide** — Document the generic script participant pattern. Any bash script that reads stdin and writes stdout is a valid participant. Include examples: API wrapper, local model wrapper, filtered/prompted wrapper. Make the custom command format a first-class documented feature, not a power-user escape hatch.
 - SQLite control plane / event log
 - Deterministic replay
 - Security hardening (signed outputs, path sanitization, trust boundaries)
@@ -300,7 +302,7 @@ agora respond {forum-id} --round 2 --participant human --file response.md
 - A2A / MCP — modern agent interop protocols (transport-level, not deliberation-level)
 - Delphi Method — RAND Corporation, 1960s forecasting methodology
 
-### What Agora Does Differently
+### What Ting Does Differently
 - Substrate-independent (filesystem, not framework-locked)
 - Any participant type (LLM, human, script — all first-class)
 - Adversarial cross-examination built into the protocol

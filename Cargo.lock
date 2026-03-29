@@ -3,21 +3,6 @@
 version = 4
 
 [[package]]
-name = "agora"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "libc",
- "notify",
- "rand",
- "serde",
- "toml",
- "uuid",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -662,6 +647,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "ting"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "libc",
+ "notify",
+ "rand",
+ "serde",
+ "toml",
+ "uuid",
 ]
 
 [[package]]

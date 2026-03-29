@@ -125,7 +125,7 @@ fn builtin_preset(name: &str) -> Option<(&'static str, &'static str)> {
     }
 }
 
-/// Resolve a preset by name: user presets (from ~/.agora/config.toml) override built-ins.
+/// Resolve a preset by name: user presets (from ~/.ting/config.toml) override built-ins.
 pub fn preset_command(name: &str) -> Option<(String, String)> {
     // Check user presets first
     if let Some(cmd) = load_user_preset(name) {
@@ -161,13 +161,13 @@ pub fn list_all_presets() -> Vec<(String, String, bool)> {
     result
 }
 
-fn agora_config_path() -> std::path::PathBuf {
+fn ting_config_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(home).join(".agora").join("config.toml")
+    std::path::PathBuf::from(home).join(".ting").join("config.toml")
 }
 
 fn load_user_presets() -> std::collections::HashMap<String, String> {
-    let path = agora_config_path();
+    let path = ting_config_path();
     if !path.exists() {
         return std::collections::HashMap::new();
     }
@@ -197,9 +197,9 @@ fn load_user_preset(name: &str) -> Option<String> {
     load_user_presets().get(name).cloned()
 }
 
-/// Save a user preset to ~/.agora/config.toml
+/// Save a user preset to ~/.ting/config.toml
 pub fn save_user_preset(name: &str, command: &str) -> Result<()> {
-    let path = agora_config_path();
+    let path = ting_config_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -499,7 +499,7 @@ type = "manual"
 
     #[test]
     fn test_validate_id_accepts_valid() {
-        assert!(validate_id("agora-2026-03-27-001", "forum ID").is_ok());
+        assert!(validate_id("ting-2026-03-27-001", "forum ID").is_ok());
         assert!(validate_id("alice", "participant name").is_ok());
         assert!(validate_id("agent-v0", "participant name").is_ok());
         assert!(validate_id("model_1", "participant name").is_ok());

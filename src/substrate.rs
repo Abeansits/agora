@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 pub fn sessions_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".agora").join("sessions")
+    PathBuf::from(home).join(".ting").join("sessions")
 }
 
 pub fn forum_dir(id: &str) -> PathBuf {
@@ -216,7 +216,7 @@ pub fn is_completed(forum: &Path) -> bool {
 /// The prompt is delivered via:
 ///   1. **stdin** — piped to the child (only if command does NOT contain `{prompt_file}`)
 ///   2. **{prompt_file}** — replaced with a temp file path in the command template
-///   3. **$AGORA_PROMPT_FILE** — env var pointing to the same temp file
+///   3. **$TING_PROMPT_FILE** — env var pointing to the same temp file
 ///
 /// Stdin and {prompt_file} are mutually exclusive to avoid double delivery.
 ///
@@ -235,7 +235,7 @@ pub fn invoke_command(
     use std::process::Stdio;
     use std::sync::{Arc, Mutex};
 
-    let tmp_file = std::env::temp_dir().join(format!("agora-{}.md", uuid::Uuid::new_v4()));
+    let tmp_file = std::env::temp_dir().join(format!("ting-{}.md", uuid::Uuid::new_v4()));
     fs::write(&tmp_file, prompt)
         .with_context(|| "Failed to write prompt temp file")?;
 
@@ -274,7 +274,7 @@ pub fn invoke_command(
                 })
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .env("AGORA_PROMPT_FILE", &tmp_display);
+                .env("TING_PROMPT_FILE", &tmp_display);
 
             // Make child a process group leader so kill(-pgid) reaps all descendants
             #[cfg(unix)]
@@ -417,7 +417,7 @@ mod tests {
 
     #[test]
     fn test_write_atomic() {
-        let dir = std::env::temp_dir().join("agora-test-atomic");
+        let dir = std::env::temp_dir().join("ting-test-atomic");
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test.md");
 
@@ -430,7 +430,7 @@ mod tests {
 
     #[test]
     fn test_write_atomic_toml() {
-        let dir = std::env::temp_dir().join("agora-test-atomic-toml");
+        let dir = std::env::temp_dir().join("ting-test-atomic-toml");
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("claims.toml");
 
@@ -446,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_current_round() {
-        let dir = std::env::temp_dir().join("agora-test-rounds");
+        let dir = std::env::temp_dir().join("ting-test-rounds");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn test_is_completed() {
-        let dir = std::env::temp_dir().join("agora-test-completed");
+        let dir = std::env::temp_dir().join("ting-test-completed");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -485,7 +485,7 @@ mod tests {
 
     #[test]
     fn test_read_all_responses() {
-        let dir = std::env::temp_dir().join("agora-test-responses");
+        let dir = std::env::temp_dir().join("ting-test-responses");
         let _ = fs::remove_dir_all(&dir);
         let round_dir = dir.join("round-1");
         fs::create_dir_all(&round_dir).unwrap();
@@ -535,9 +535,9 @@ mod tests {
 
     #[test]
     fn test_invoke_command_env_var() {
-        // Command reads AGORA_PROMPT_FILE env var
+        // Command reads TING_PROMPT_FILE env var
         let result = invoke_command(
-            "cat $AGORA_PROMPT_FILE",
+            "cat $TING_PROMPT_FILE",
             "hello from env",
             Duration::from_secs(5),
         );

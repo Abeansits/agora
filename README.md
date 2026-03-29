@@ -1,20 +1,20 @@
-# Agora
+# Ting
 
-A multi-agent deliberation tool where any LLM, CLI tool, or human can participate in structured, multi-turn discussions using the filesystem as a shared medium. Agora orchestrates a modified Delphi protocol — independent proposals, adversarial cross-examination, informed revision — then synthesizes agreement and preserves dissent as a first-class output.
+A multi-agent deliberation tool where any LLM, CLI tool, or human can participate in structured, multi-turn discussions using the filesystem as a shared medium. Ting orchestrates a modified Delphi protocol — independent proposals, adversarial cross-examination, informed revision — then synthesizes agreement and preserves dissent as a first-class output.
 
 ## Who This Is For
 
-**Agora is for you if:**
+**Ting is for you if:**
 - You use multiple AI models and want better decisions than any single model gives
 - You want structured disagreement, not just "ask Claude" — cross-examination surfaces blind spots
 - You make architecture, planning, or strategy decisions regularly and want to stress-test your thinking
 - You want a record of *why* a decision was made, including the dissenting views
 
-**Agora is NOT for:**
-- Simple Q&A where one model is enough — Agora is overkill for "fix this bug"
+**Ting is NOT for:**
+- Simple Q&A where one model is enough — Ting is overkill for "fix this bug"
 - Real-time chat — deliberation takes minutes, not seconds
 - People who want a framework or SDK — this is a standalone CLI tool
-- Consensus-seeking — Agora preserves dissent as a first-class output, not a failure mode
+- Consensus-seeking — Ting preserves dissent as a first-class output, not a failure mode
 
 ## Prerequisites
 
@@ -30,36 +30,36 @@ A multi-agent deliberation tool where any LLM, CLI tool, or human can participat
 cargo build --release
 
 # Run a 3-model deliberation
-agora new "Should we use Pipecat or Vapi for voice?" \
+ting new "Should we use Pipecat or Vapi for voice?" \
   --participant codex \
   --participant gemini \
   --participant claude
 
 # Check progress
-agora status <forum-id>
+ting status <forum-id>
 
 # View result
-agora result <forum-id>
+ting result <forum-id>
 
 # Generate HTML report
-agora result --html <forum-id>
+ting result --html <forum-id>
 
 # Publish report to the web
-agora result --html --publish <forum-id>
+ting result --html --publish <forum-id>
 ```
 
 ### What You'll See
 
 ```
-   █████╗  ██████╗  ██████╗ ██████╗  █████╗
-  ██╔══██╗██╔════╝ ██╔═══██╗██╔══██╗██╔══██╗
-  ███████║██║  ███╗██║   ██║██████╔╝███████║
-  ██╔══██║██║   ██║██║   ██║██╔══██╗██╔══██║
-  ██║  ██║╚██████╔╝╚██████╔╝██║  ██║██║  ██║
-  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
-  v0.1.1  Structured deliberation between AI models
+  ████████╗██╗███╗   ██╗ ██████╗
+  ╚══██╔══╝██║████╗  ██║██╔════╝
+     ██║   ██║██╔██╗ ██║██║  ███╗
+     ██║   ██║██║╚██╗██║██║   ██║
+     ██║   ██║██║ ╚████║╚██████╔╝
+     ╚═╝   ╚═╝╚═╝  ╚═══╝ ╚═════╝
+  v0.2.0  Structured deliberation between AI models
 
-  Forum  agora-2026-03-27-a1b2c3d4
+  Forum  ting-2026-03-27-a1b2c3d4
   Topic  Should we use Pipecat or Vapi for voice?
   With   codex, gemini, claude
   Rules  5 rounds, 5m timeout
@@ -84,7 +84,7 @@ agora result --html --publish <forum-id>
   Evaluating convergence...
   CONVERGED (score: 8.0): Strong agreement on core architecture...
 
-=== Final output written to ~/.agora/sessions/agora-2026-03-27-a1b2c3d4/final/ ===
+=== Final output written to ~/.ting/sessions/ting-2026-03-27-a1b2c3d4/final/ ===
 ```
 
 ## Protocol
@@ -113,10 +113,10 @@ Dissent is not failure — it's the most valuable output when models genuinely d
 
 ## CLI Reference
 
-### `agora new`
+### `ting new`
 
 ```bash
-agora new "Your question or topic" \
+ting new "Your question or topic" \
   --participant codex \
   --participant gemini \
   --participant human \
@@ -127,24 +127,24 @@ agora new "Your question or topic" \
 
 Creates a forum and runs the full deliberation (blocking). The `--context` flag accepts a file path or inline text that gets included in every round's prompt. Context is snapshotted at creation time (not re-read each round) for reproducibility.
 
-### `agora status <forum-id>`
+### `ting status <forum-id>`
 
 Shows current round, participant responses received/missing, and completion state.
 
-### `agora list`
+### `ting list`
 
 Lists all forums with status and topic.
 
-### `agora result <forum-id>`
+### `ting result <forum-id>`
 
 Prints the final synthesis and dissent to terminal. Add `--html` to generate a self-contained HTML report. Add `--publish` to push it to the web via here.now.
 
-### `agora respond <forum-id>`
+### `ting respond <forum-id>`
 
 For human participants — submit a response from another terminal while the forum is running:
 
 ```bash
-agora respond <forum-id> -r 1 -n human -f my-response.md
+ting respond <forum-id> -r 1 -n human -f my-response.md
 ```
 
 ## Participant Types
@@ -161,33 +161,33 @@ agora respond <forum-id> -r 1 -n human -f my-response.md
 | `human`    | (manual — writes files directly)         | filesystem   |
 
 ```bash
-agora new "topic" --participant codex --participant gemini
+ting new "topic" --participant codex --participant gemini
 ```
 
 ### Custom Presets
 
-Save reusable presets with `agora preset`:
+Save reusable presets with `ting preset`:
 
 ```bash
 # Add a custom preset
-agora preset add mistral "cat {prompt_file} | ollama run mistral"
+ting preset add mistral "cat {prompt_file} | ollama run mistral"
 
 # List all presets (built-in + custom)
-agora preset list
+ting preset list
 
 # Use it
-agora new "topic" --participant mistral --participant codex
+ting new "topic" --participant mistral --participant codex
 
 # Remove it
-agora preset remove mistral
+ting preset remove mistral
 ```
 
-Custom presets are stored in `~/.agora/config.toml` and override built-ins of the same name.
+Custom presets are stored in `~/.ting/config.toml` and override built-ins of the same name.
 
 ### Custom Commands (inline)
 
 ```bash
-agora new "topic" \
+ting new "topic" \
   --participant "llama:command:cat {prompt_file} | ollama run llama3" \
   --participant "gpt:command:cat {prompt_file} | openai-cli chat"
 ```
@@ -195,19 +195,19 @@ agora new "topic" \
 The prompt is delivered to commands via:
 1. **stdin** — piped directly (safest)
 2. **`{prompt_file}`** — replaced with a temp file path in the command
-3. **`$AGORA_PROMPT_FILE`** — env var pointing to the same temp file
+3. **`$TING_PROMPT_FILE`** — env var pointing to the same temp file
 
 ### Human / Manual
 
 ```bash
-agora new "topic" --participant human --participant codex
+ting new "topic" --participant human --participant codex
 ```
 
 When the fire keeper needs a human response, it prints instructions:
 ```
 Waiting for human. Submit your response:
-  Option A: Write to ~/.agora/sessions/<id>/round-1/human.md
-  Option B: agora respond <id> -r 1 -n human -f response.md
+  Option A: Write to ~/.ting/sessions/<id>/round-1/human.md
+  Option B: ting respond <id> -r 1 -n human -f response.md
 ```
 
 ### Other Models
@@ -219,16 +219,16 @@ Any CLI that reads from stdin or a file can participate. Examples:
 # Pi (no public CLI — use via API wrapper)
 
 # Any ollama model
-agora preset add deepseek "cat {prompt_file} | ollama run deepseek-r1"
+ting preset add deepseek "cat {prompt_file} | ollama run deepseek-r1"
 ```
 
 ## Configuration
 
-Forums are configured via `meta.toml`, generated automatically by `agora new`:
+Forums are configured via `meta.toml`, generated automatically by `ting new`:
 
 ```toml
 [forum]
-id = "agora-2026-03-27-001"
+id = "ting-2026-03-27-001"
 topic = "Should we use Pipecat or Vapi?"
 created = "2026-03-27T00:30:00Z"
 max_rounds = 5
@@ -263,7 +263,7 @@ model = "claude-opus"
 ## Directory Structure
 
 ```
-~/.agora/sessions/<forum-id>/
+~/.ting/sessions/<forum-id>/
   meta.toml
   round-1/
     prompt.md

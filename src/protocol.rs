@@ -276,7 +276,7 @@ fn invoke_participants(
         for name in &manual_participants {
             eprintln!("  Waiting for {name}. Submit your response:");
             eprintln!("    Option A: Write to {}/round-{}/{name}.md", forum_path.display(), round);
-            eprintln!("    Option B: agora respond {forum_id} -r {round} -n {name} -f response.md");
+            eprintln!("    Option B: ting respond {forum_id} -r {round} -n {name} -f response.md");
         }
         eprintln!();
         let timeout = config::parse_duration(&config.timing.round_timeout)?;
