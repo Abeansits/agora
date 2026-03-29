@@ -344,6 +344,19 @@ fn build_position_chart(forum_path: &Path, total_rounds: u32, participants: &[St
         return String::new();
     }
 
+    // Auto-scale Y axis from actual data with ~10% padding
+    let all_scores: Vec<f32> = data
+        .iter()
+        .flat_map(|r| r.values().copied())
+        .collect();
+    let data_min = all_scores.iter().cloned().fold(f32::MAX, f32::min);
+    let data_max = all_scores.iter().cloned().fold(f32::MIN, f32::max);
+    let range = (data_max - data_min).max(1.0);
+    let padding = range * 0.15;
+    let y_min = (data_min - padding).max(0.0).floor();
+    let y_max = (data_max + padding).min(10.0).ceil();
+    let y_range = y_max - y_min;
+
     // Chart dimensions
     let w = 600.0_f32;
     let h = 280.0_f32;
@@ -366,20 +379,25 @@ fn build_position_chart(forum_path: &Path, total_rounds: u32, participants: &[St
         r##"<rect width="{}" height="{}" fill="#161b22" rx="12"/>"##, w, h
     ));
 
-    // Grid lines and Y labels
-    for i in 0..=10 {
-        let y = pad_t + chart_h - (i as f32 / 10.0) * chart_h;
-        let opacity = if i % 5 == 0 { "0.3" } else { "0.1" };
+    // Grid lines and Y labels (auto-scaled)
+    let tick_step = if y_range <= 3.0 { 0.5 } else { 1.0 };
+    let mut tick = y_min;
+    while tick <= y_max + 0.01 {
+        let frac = (tick - y_min) / y_range;
+        let y = pad_t + chart_h - frac * chart_h;
+        let is_major = (tick % 1.0).abs() < 0.01;
+        let opacity = if is_major { "0.3" } else { "0.15" };
         svg.push_str(&format!(
             r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="#30363d" stroke-opacity="{}"/>"##,
             pad_l, y, w - pad_r, y, opacity
         ));
-        if i % 5 == 0 {
+        if is_major {
             svg.push_str(&format!(
                 r##"<text x="{}" y="{}" fill="#8b949e" font-size="11" text-anchor="end" dominant-baseline="middle">{}</text>"##,
-                pad_l - 8.0, y, i
+                pad_l - 8.0, y, tick as i32
             ));
         }
+        tick += tick_step;
     }
 
     // X labels (round numbers)
@@ -408,7 +426,8 @@ fn build_position_chart(forum_path: &Path, total_rounds: u32, participants: &[St
                 } else {
                     pad_l + (ri as f32 / (num_points - 1) as f32) * chart_w
                 };
-                let y = pad_t + chart_h - (score / 10.0) * chart_h;
+                let frac = (score - y_min) / y_range;
+                let y = pad_t + chart_h - frac * chart_h;
                 points.push((x, y));
             }
         }
@@ -453,16 +472,16 @@ fn build_position_chart(forum_path: &Path, total_rounds: u32, participants: &[St
         .collect();
 
     format!(
-        r#"<section class="chart-section">
+        r#"<section class="chart-section" style="margin-bottom:24px">
   <h2>Position Shift</h2>
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px">
     {}
     <div style="margin-top:12px;font-size:13px;color:var(--text-dim)">{}</div>
-    <div style="margin-top:4px;font-size:11px;color:var(--text-dim)">Alignment with synthesis per round (1-10)</div>
+    <div style="margin-top:4px;font-size:11px;color:var(--text-dim)">Alignment with synthesis per round ({:.0}&ndash;{:.0} scale)</div>
   </div>
 </section>
 "#,
-        svg, legend
+        svg, legend, y_min, y_max
     )
 }
 
