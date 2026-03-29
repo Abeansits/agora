@@ -19,7 +19,7 @@ A multi-agent deliberation tool where any LLM, CLI tool, or human can participat
 ## Prerequisites
 
 - **Rust** (1.85+, edition 2024)
-- **Claude Code** (`claude` CLI) — used for synthesis, convergence evaluation, and as a participant
+- **Claude Code** (`claude` CLI) — required for synthesis generation and convergence evaluation (fire keeper internals). Also available as a participant preset, but not required as one
 - At least one participant CLI installed and authenticated: `codex`, `gemini`, `opencode`, or just use `human` for manual participation
 - Optional: `herenow` CLI for publishing HTML reports via `--publish`
 
